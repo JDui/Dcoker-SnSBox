@@ -127,3 +127,15 @@ P2/P3 工程完成不代表原路线 M1/M3 的双平台实用验收完成。
 - 最终 Docker Node + Rust 多阶段构建通过，`snsbox:0.1.0` 为 linux/amd64、UID 10001。历史 overlay 单独使用磁盘 scratch 卷，避免大资料复制到默认小容量内存盘。镜像未发布至仓库，未部署到 NAS。
 - 更新后的容器冒烟通过，包括新增历史接口鉴权、CSRF、缺来源/QQ 不支持状态和上游延迟启动恢复。现场启动竞争曾导致短暂 error，已改成失败后随 5 秒轮询重试，不再等到一分钟同步周期；不会重提登录或发送操作。
 - 当前真实旧历史仍不可读：用户没有提供一致性副本和数据库密钥。新功能已实现不等于这份资料已解密，目录保全也不代表旧登录令牌已复用。本机入口和原独立卷保留，用户现用 WS 不受影响。
+
+## 第四轮：历史准备工具阶段保存（2026-11-16）
+
+用户要求在没有 SSH/快照接口信息的条件下继续，并随后要求因电脑关机收尾。此节点保存当前实现，不宣称完成工具链联合验收。
+
+- `ffbe12e` 已提交推送：新增 Windows 原生 SMB Previous Versions 只读探测。对指定 config 目录实测返回 `unsupported` / Win32 error 1；没有创建快照、打开数据库或写入源。
+- 两个既有线程继续分工。Sol 实现 `tools/history-snapshot/prepare.py`，有界检查独立资料，复制 DB/WAL（不读取 SHM）、生成只读来源/Compose 配置；只对新私有明文副本复用 SQLite backup。两项合成专项检查已通过。没有将元数据稳定当作一致性证明。
+- Astra 实现 `tools/wechat-key-import/prepare.py`，抽取固定 chatlog-keeper 的纯 Python `process_vm_readv` 与 SQLCipher 首屏认证/派生函数，保留 MIT 来源说明。支持明确缓存转换及明确 PID 的有界扫描入口；没有调试附加、主动重登录或提权回退。未在真实微信进程运行。
+- 真实 SQLCipher 合成 fixture 已生成。初版会话夹具与预期不符；收尾前后端线程已修正并完成 round2：password/raw 两种模式均由 ProfileReader 实际读出一个会话、三条消息，五项定向检查通过，包括仅针对合成子进程的被动扫描及拒绝后无回退。没有真实进程验收。
+- 主线程新增 `tools/history-smoke.mjs`，用只读合成输入卷，经副本工具接入现有 `snsbox:0.1.0`；首次 HTTP refresh 返回 `keys_required`，尚未定位。临时 HTTP 测试容器和自建卷已由脚本清理。此失败与夹具会话问题均需下次优先排查，不应弱化密钥权限或认证检查来绕过。
+- 下次继续：确认 HTTP 挂载的 KeyFile UID/权限、账号绑定与逐库认证，使用已修正的 round2 完成 HTTP 读取验证。合成卷 `snsbox-key-preparation-fixtures` 暂保留；round2 两类资料和对应 KeyFile 归属 10001:10001，父目录 0700、密钥 0600；round1 为旧夹具。测试脚本已指向 round2，但因用户要求关机收尾没有重跑 HTTP。新建 fixture 目录避免覆盖。
+- 本轮未更改应用运行代码，未重建/替换运行镜像，未发布镜像或部署 NAS。当前本机两个 MVP 容器保留；未停止或改写现用 WS。真实数据库密钥、真实一致性来源和真实历史读取仍未取得，用户暂不扫码。

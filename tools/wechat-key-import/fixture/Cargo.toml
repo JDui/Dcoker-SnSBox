@@ -1,0 +1,10 @@
+[package]
+name = "snsbox-key-fixture"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+wechat-profile = "=2.5.0"
+rusqlite = { version = "0.32", features = ["bundled-sqlcipher-vendored-openssl"] }
+md-5 = "0.10"

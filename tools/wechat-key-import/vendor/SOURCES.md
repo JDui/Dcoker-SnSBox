@@ -1,0 +1,11 @@
+# Fixed upstream source
+
+Vendored subset from [chatlog-keeper d2feeec09a192af9a4738547b8543cf096386464](https://github.com/labazhou2024/chatlog-keeper/tree/d2feeec09a192af9a4738547b8543cf096386464), MIT; copyright and license are retained in [LICENSE.chatlog-keeper](LICENSE.chatlog-keeper).
+
+- `linux_memory.py`: [core/_linux_process_memory.py](https://github.com/labazhou2024/chatlog-keeper/blob/d2feeec09a192af9a4738547b8543cf096386464/chatlog_keeper/core/_linux_process_memory.py). The Windows exception import is replaced with the same small local error type. No helper/CLI imports, subprocesses, signals, debugger attachment, privilege escalation or ptrace fallback.
+- `sqlcipher_keys.py`: `_hmac_check_pagekey` and `_effective_page_key` from [wechat_db.py](https://github.com/labazhou2024/chatlog-keeper/blob/d2feeec09a192af9a4738547b8543cf096386464/chatlog_keeper/wechat_db.py). Only the required standard-library imports/constants are retained; MAC comparison uses `hmac.compare_digest`. Raw-key verification is attempted first; password-mode derives a per-database SQLCipher4 page key with its salt, then verifies its page-1 MAC.
+- `prepare.py` uses the two candidate regex shapes from the same upstream `_scan_linux_memory_for_key`: SQLCipher hex literal and NUL-terminated 64-hex string. This is a bounded heuristic, not universal support for every Linux WeChat build. Chunk-edge candidates may be missed; no attach/relogin fallback is permitted.
+
+Excluded: `linux_key.py`, C `linux_memory_scan.c`, GDB, preload capture, upstream package initialization, automatic process discovery and account cache discovery. The C helper contains `PTRACE_ATTACH`/`waitpid`/`PTRACE_DETACH`; it cannot be described as non-pausing merely because it only reads memory. At this revision, the ordinary Linux passive Python call chain does not call that helper; the active child-process path can.
+
+Output schema is pinned to [wechat-profile 2.5.0](https://crates.io/crates/wechat-profile/2.5.0), `src/keys.rs` (`EncodedKeyFile`, `EncodedDatabaseKey`, `KeyFile::load`) and `src/snapshot.rs` (account binding, salt and page-key verification). The independent Rust fixture pins the same crate and exercises actual SQLCipher reads; it does not modify the application's dependency manifest.

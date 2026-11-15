@@ -1,4 +1,5 @@
 /target/
+/tools/**/target/
 /web/node_modules/
 /web/dist/
 /config/
@@ -15,3 +16,5 @@
 *.db
 /artifacts/
 /.references/
+__pycache__/
+*.pyc

@@ -1,5 +1,6 @@
 .git
 target
+tools/**/target
 node_modules
 web/node_modules
 data
@@ -7,6 +8,8 @@ private
 secrets
 config
 artifacts
+**/__pycache__
+**/*.pyc
 .references
 compose.upstreams.yaml
 compose.llbot.yaml

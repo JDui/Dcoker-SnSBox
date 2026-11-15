@@ -4,6 +4,8 @@
 
 ## 准备来源
 
+可执行准备工具见 [副本准备](../docs/HISTORY_SNAPSHOT_PREPARATION.md) 和 [密钥转换](../docs/WECHAT_KEY_PREPARATION.md)。2026-11-16 收尾时副本专项检查已通过，但转换后接入主服务的 HTTP 集成仍返回 `keys_required`，尚未完成联合验收；不要将这些工具标为真实历史读取成功。
+
 仅有 Windows SMB 映射时，可先枚举服务器已有的 Previous Versions，无需 SSH，也不会创建快照或打开数据库：
 
 ```powershell

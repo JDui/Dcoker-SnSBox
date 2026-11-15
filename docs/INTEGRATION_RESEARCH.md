@@ -83,5 +83,5 @@ SnSBox 应适配以上来源，不把“改写数据库”等同于发消息，�
 - 用户没有 SSH 或快照接口信息，要求在现有条件下继续。通过 Windows 既有 SMB 连接，以只读目录句柄调用标准 `FSCTL_SRV_ENUMERATE_SNAPSHOTS`，不创建快照、不打开数据库、不请求写入、不取得数据库锁。新工具为 `deploy/probe-smb-snapshots.ps1`。
 - 对用户指定 config 目录的实际响应为 `unsupported` / Win32 error 1。该共享没有通过本次标准枚举提供 Previous Versions；这不证明 NAS 的底层文件系统不具备快照能力。没有因此扫描其他共享、复制整个活跃库或自动设置一致性确认。
 - 协议依据：[Microsoft SMB2 Previous Versions](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-smb2/c631e497-9a47-4537-9817-8af2a4834d03)。只有服务器返回的既有版本才可列为候选；枚举本身不证明数据库完整、密钥可用或版本覆盖范围。
-- 进一步审查固定 chatlog-keeper 源码发现 `scripts/linux_memory_scan.c` 有 `PTRACE_ATTACH` 回退，不能仅凭命令标记 `passive` 就承诺不暂停现用 WS。其 Python `core/_linux_process_memory.py` 提供独立 `process_vm_readv` 路径；只有经审查无调试回退的路径才可用于后续受限工具。SMB 文件共享本身不提供远端进程内存。
+- 进一步审查固定 chatlog-keeper 源码发现 `scripts/linux_memory_scan.c` 有 `PTRACE_ATTACH` 回退，需要核实具体调用链。后端线程确认普通 Linux passive Python 路径不调用此 helper，active 子进程路径可以调用。SnSBox 只保留独立 `core/_linux_process_memory.py` 的 `process_vm_readv` 读取与密钥验证函数，不带入 C helper、CLI、主动捕获或进程自动发现。SMB 文件共享本身不提供远端进程内存。
 - [SQLite WAL 文档](https://www.sqlite.org/wal.html) 说明 WAL 与共享内存的读写协作条件。`mode=ro` 不等于零锁影响，也不能将活跃数据库错误标记为 `immutable` 来获取一致性；本轮不在现用源上调用备份 API 或 checkpoint。
