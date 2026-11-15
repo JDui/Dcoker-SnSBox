@@ -31,3 +31,13 @@ WS 把用户目录持久化到 `/config`。现有源码引用以下布局；它�
 5. 双项目日常使用：明确只能一个官方资料写入方；若真实上游不能复用现有 token，保持原 config 完整并独立登录，不能宣称无缝共用完成。
 
 浏览器和日志只暴露必要状态，不返回源资料文件内容、完整账号路径或登录秘密。
+
+## 本轮活跃源只读核对
+
+用户明确现有 WS 仍在使用，只能只读检查。用户给出的目录是 Compose 项目根，实际资料在其 `config/` 子目录。只读核对确认 `.xwechat`、`xwechat_files`、`.config/QQ`、`.system-identity` 和 `.xwechat/net/host` 存在；Compose 镜像标签为 `wechat-selkies:1.83`，该标签不等于微信/QQ 客户端的版本号。
+
+仅检查代表性文件的 16 字节格式头，不输出原始字节：微信 session、contact、message 数据库均不具有明文 SQLite 文件头，不能按普通 SQLite 文件直接查询；未提取密钥、登录令牌或消息。QQ 存在 `nt_qq_*` 下的 `nt_data` 和 `nt_db`。报告不记录实际账号目录名。源目录未修改、未复制、未停止写入方。
+
+固定版 Agent WeChat 的 [CLI 说明](https://github.com/thisnick/agent-wechat/blob/ce5c0687c0e99e3f93fd85266baa3fad26d63a11/packages/native-client-rust/CLI.md) 明确 `auth login --official` 是原位接管且允许写入，不是只读导入；其 [迁移说明](https://github.com/thisnick/agent-wechat/blob/ce5c0687c0e99e3f93fd85266baa3fad26d63a11/docs/src/content/docs/setup/migrate.mdx) 要求停止原客户端并备份，回退需恢复备份，不能直接把旧客户端指向 native 修改后的资料。
+
+因此本轮不能把活跃源注册为 official profile，也不能以读权限检查通过承诺登录令牌可直接共用。允许先完成无写入的布局/格式诊断、隔离上游运行和登录操作接口。后续迁移须使用用户另行提供的一致性副本或源端一致性快照；不把运行中数据库的普通文件复制标成一致性备份。
