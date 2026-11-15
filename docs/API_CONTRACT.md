@@ -37,6 +37,12 @@ platform: `wechat|qq`；status: `unconfigured|connecting|online|offline|error`�
 
 ## 会话、历史和搜索
 
+2026-11-15 第二轮扩展（前端可立即按此契约对接）：
+
+- `PATCH /api/v1/conversations/{conversationId}`，JSON `{ "pinned"?: boolean, "muted"?: boolean, "unread"?: boolean }`，至少一项；Cookie + `X-CSRF-Token`，返回更新后的会话对象。只更新 SnSBox 本地状态，不写回微信/QQ。`unread=true` 将本地计数至少置为 1，false 清零。
+- 会话新增固定字段 `pinned: boolean`、`muted: boolean`、`unread: boolean`。现有 `unreadCount` 保留。同步上游不会覆盖这些本地偏好。
+- 会话列表按 `pinned DESC, lastMessageAt DESC, id DESC` 排序。会话分页游标与消息分页游标分别使用，不可混用；筛选条件必须保持相同。置顶变更会让旧会话列表分页游标返回 409 `pagination_changed`，前端清空旧页并重新获取第一页，避免置顶变更期间跳过或重复会话。
+
 - `GET /api/v1/conversations?accountId=...&query=...&cursor=...&limit=50`
 - `GET /api/v1/conversations/{conversationId}/messages?cursor=...&limit=50&query=...`
 - `GET /api/v1/messages?query=...&accountId=...&cursor=...&limit=50`：搜索本地已同步历史。

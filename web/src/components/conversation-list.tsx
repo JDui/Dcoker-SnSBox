@@ -1,14 +1,16 @@
 import { useRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { ArrowDown, ArrowUpRight, ChevronDown, CircleHelp, Inbox, LoaderCircle, Pin, Search, SlidersHorizontal, VolumeX, X } from 'lucide-react'
-import type { Account, Conversation, Message, Mode, Platform } from '../lib/types'
+import type { Account, Conversation, ConversationPatch, Message, Mode, Platform } from '../lib/types'
 import { accountKey, cn, conversationKey, formatTime, platformName } from '../lib/utils'
 import { Avatar, Brand, PlatformBadge } from './identity'
 import { Button, IconButton, Menu, MenuItem } from './ui'
+import { ConversationActions } from './conversation-actions'
 
-export function ConversationList({ conversations, accounts, activeKey, platform, accountFilter, search, searchResults, searchLoading, searchError, loading, error, mode, hasMore, hasMoreSearch, loadingMore, onPlatform, onAccountFilter, onSearch, onSelect, onSearchSelect, onManageAccounts, onLoadMore, onLoadMoreSearch, onRetry }: {
+export function ConversationList({ conversations, accounts, activeKey, platform, accountFilter, search, searchResults, searchLoading, searchError, loading, error, mode, hasMore, hasMoreSearch, loadingMore, operations, onConversationChange, onPlatform, onAccountFilter, onSearch, onSelect, onSearchSelect, onManageAccounts, onLoadMore, onLoadMoreSearch, onRetry }: {
   conversations: Conversation[]; accounts: Account[]; activeKey?: string; platform: Platform | 'all'; accountFilter: string; search: string; searchResults: Message[]; searchLoading: boolean; searchError?: string; loading: boolean; error?: string; mode: Mode; hasMore: boolean; hasMoreSearch: boolean; loadingMore: boolean
   onPlatform: (platform: Platform | 'all') => void; onAccountFilter: (id: string) => void; onSearch: (value: string) => void; onSelect: (conversation: Conversation) => void; onSearchSelect: (message: Message) => void; onManageAccounts: () => void; onLoadMore: () => void; onLoadMoreSearch: () => void; onRetry: () => void
+  operations: Record<string, boolean>; onConversationChange: (conversation: Conversation, patch: ConversationPatch) => void
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const virtualizer = useVirtualizer({ count: conversations.length, getScrollElement: () => scrollRef.current, estimateSize: () => 94, overscan: 6, getItemKey: index => conversationKey(conversations[index]) })
@@ -29,7 +31,8 @@ export function ConversationList({ conversations, accounts, activeKey, platform,
         {!searchLoading && !searchError && !searchResults.length && <div className="list-state"><Search size={26} /><strong>还没有找到</strong><p>试试其他关键词。这里只搜索 SnSBox 已同步的消息。</p></div>}
         {searchResults.map(message => {
           const conversation = conversations.find(item => item.id === message.conversationId && item.accountId === message.accountId && item.platform === message.platform)
-          return <button type="button" className="search-result" key={JSON.stringify([message.platform, message.accountId, message.conversationId, message.id])} onClick={() => onSearchSelect(message)}><div><PlatformBadge platform={message.platform} /><strong>{conversation?.title || message.senderName || '会话'}</strong><ArrowUpRight size={14} /></div><p>{message.segments.map(segment => segment.type === 'text' ? segment.text : `[${segment.type}]`).join(' ')}</p><small>{message.senderName} · {formatTime(message.timestamp)}</small></button>
+          const account = accounts.find(item => item.id === message.accountId && item.platform === message.platform)
+          return <button type="button" className="search-result" key={JSON.stringify([message.platform, message.accountId, message.conversationId, message.id])} onClick={() => onSearchSelect(message)}><div><PlatformBadge platform={message.platform} /><strong>{conversation?.title || message.senderName || '会话'}</strong><ArrowUpRight size={14} /></div><p>{message.segments.map(segment => segment.type === 'text' ? segment.text : `[${segment.type}]`).join(' ')}</p><small>{account?.displayName || platformName(message.platform)} · {message.senderName || '发送者未知'} · {formatTime(message.timestamp)}</small></button>
         })}
         {hasMoreSearch && <Button className="load-more-list" variant="ghost" onClick={onLoadMoreSearch} disabled={loadingMore}><ArrowDown size={15} />更多搜索结果</Button>}
       </div> : <>
@@ -39,11 +42,12 @@ export function ConversationList({ conversations, accounts, activeKey, platform,
         <div className="virtual-conversations" style={{ height: virtualizer.getTotalSize() }}>{virtualizer.getVirtualItems().map(row => {
           const conversation = conversations[row.index]
           const account = accounts.find(item => item.id === conversation.accountId && item.platform === conversation.platform)
-          return <div key={row.key} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: row.size, transform: `translateY(${row.start}px)` }}>
+          return <div key={row.key} className="conversation-row" data-conversation-key={conversationKey(conversation)} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: row.size, transform: `translateY(${row.start}px)` }}>
             <button type="button" className={cn('conversation-item', activeKey === conversationKey(conversation) && 'is-active')} onClick={() => onSelect(conversation)} aria-current={activeKey === conversationKey(conversation) ? 'true' : undefined}>
               <Avatar name={conversation.title} group={conversation.kind === 'group'} url={conversation.avatarUrl} platform={conversation.platform} />
-              <span className="conversation-content"><span className="conversation-line"><strong>{conversation.title}</strong><time>{formatTime(conversation.lastMessageAt)}</time></span><span className="conversation-preview"><span>{conversation.lastMessage || '还没有消息'}</span>{conversation.unreadCount > 0 && <span className={cn('unread-badge', conversation.muted && 'unread-muted')}>{conversation.unreadCount > 99 ? '99+' : conversation.unreadCount}</span>}</span><span className="conversation-account">{account?.displayName || platformName(conversation.platform)}{conversation.pinned && <Pin size={10} />}{conversation.muted && <VolumeX size={11} />}</span></span>
+              <span className="conversation-content"><span className="conversation-line"><strong>{conversation.title}</strong><time>{formatTime(conversation.lastMessageAt)}</time></span><span className="conversation-preview"><span>{conversation.lastMessage || '还没有消息'}</span>{conversation.unreadCount > 0 && <span className={cn('unread-badge', conversation.muted && 'unread-muted')}>{conversation.unreadCount > 99 ? '99+' : conversation.unreadCount}</span>}</span><span className="conversation-account">{account?.displayName || platformName(conversation.platform)}{conversation.pinned && <span className="conversation-flag" role="img" aria-label="已在 SnSBox 置顶"><Pin size={11} /></span>}{conversation.muted && <span className="conversation-flag" role="img" aria-label="SnSBox 本地免打扰"><VolumeX size={12} /></span>}</span></span>
             </button>
+            <div className="conversation-row-actions"><ConversationActions conversation={conversation} busy={operations[conversationKey(conversation)]} onChange={patch => onConversationChange(conversation, patch)} /></div>
           </div>
         })}</div>
         {hasMore && <Button variant="ghost" className="load-more-list" onClick={onLoadMore} disabled={loadingMore}>{loadingMore ? <LoaderCircle size={15} className="spinning" /> : <ArrowDown size={15} />}加载更多会话</Button>}

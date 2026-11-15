@@ -44,6 +44,11 @@ pub async fn event_tx(
     Ok(())
 }
 pub async fn conversation(db: &SqlitePool, body: &Value) -> Result<()> {
+    let mut normalized = body.clone();
+    normalized["pinned"] = json!(false);
+    normalized["muted"] = json!(false);
+    normalized["unread"] = json!(normalized["unreadCount"].as_i64().unwrap_or(0) > 0);
+    let body = &normalized;
     let mut tx = db.begin().await?;
     // Start with a write, not a read-then-write deferred transaction: simultaneous
     // platform workers must not upgrade a stale WAL read snapshot into a writer.
@@ -63,12 +68,70 @@ pub async fn conversation(db: &SqlitePool, body: &Value) -> Result<()> {
     tx.commit().await?;
     Ok(())
 }
+pub async fn preferences(
+    db: &SqlitePool,
+    id: &str,
+    pinned: Option<bool>,
+    muted: Option<bool>,
+    unread: Option<bool>,
+) -> Result<Option<Value>> {
+    let mut tx = db.begin().await?;
+    // Acquire the writer with a conditional revision update before reading.
+    sqlx::query("UPDATE local_state SET value=value+CASE WHEN EXISTS(SELECT 1 FROM conversations WHERE id=? AND pinned<>?) THEN 1 ELSE 0 END WHERE key='conversation_order_revision'").bind(id).bind(pinned.map(i64::from)).execute(&mut *tx).await?;
+    let raw: Option<String> = sqlx::query_scalar("SELECT body FROM conversations WHERE id=?")
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await?;
+    let Some(raw) = raw else {
+        tx.commit().await?;
+        return Ok(None);
+    };
+    let mut body: Value = serde_json::from_str(&raw)?;
+    if let Some(v) = pinned {
+        body["pinned"] = json!(v);
+    }
+    if let Some(v) = muted {
+        body["muted"] = json!(v);
+    }
+    if let Some(v) = unread {
+        body["unreadCount"] = json!(if v {
+            body["unreadCount"].as_i64().unwrap_or(0).max(1)
+        } else {
+            0
+        });
+        body["unread"] = json!(v);
+    }
+    sqlx::query("UPDATE conversations SET pinned=?,muted=?,body=? WHERE id=?")
+        .bind(i64::from(body["pinned"] == true))
+        .bind(i64::from(body["muted"] == true))
+        .bind(body.to_string())
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    event_tx(
+        &mut tx,
+        "conversation",
+        body["accountId"].as_str().unwrap(),
+        Some(id),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(Some(body))
+}
 pub async fn message(db: &SqlitePool, body: &Value) -> Result<()> {
     let mut tx = db.begin().await?;
     let inserted=sqlx::query("INSERT OR IGNORE INTO messages(id,conversation_id,account_id,upstream_id,timestamp,status,search_text,body) VALUES(?,?,?,?,?,?,?,?)")
         .bind(body["id"].as_str()).bind(body["conversationId"].as_str()).bind(body["accountId"].as_str()).bind(body["upstreamId"].as_str()).bind(body["timestamp"].as_str().unwrap_or("")).bind(body["status"].as_str()).bind(crate::model::search_text(&body["segments"])).bind(body.to_string()).execute(&mut *tx).await?.rows_affected();
     if inserted > 0 {
         let unread = i64::from(body["direction"] == "incoming");
+        if unread > 0 {
+            sqlx::query(
+                "UPDATE conversations SET body=json_set(body,'$.unread',json('true')) WHERE id=?",
+            )
+            .bind(body["conversationId"].as_str())
+            .execute(&mut *tx)
+            .await?;
+        }
         sqlx::query("UPDATE conversations SET last_at=MAX(COALESCE(last_at,''),?), body=json_set(body,'$.unreadCount',COALESCE(json_extract(body,'$.unreadCount'),0)+?, '$.lastMessage',CASE WHEN COALESCE(last_at,'')<=? THEN ? ELSE json_extract(body,'$.lastMessage') END,'$.lastMessageAt',MAX(COALESCE(last_at,''),?)) WHERE id=?")
             .bind(body["timestamp"].as_str().unwrap_or("")).bind(unread).bind(body["timestamp"].as_str().unwrap_or("")).bind(crate::model::preview(&body["segments"])).bind(body["timestamp"].as_str().unwrap_or("")).bind(body["conversationId"].as_str()).execute(&mut *tx).await?;
         event_tx(

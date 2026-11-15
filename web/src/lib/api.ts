@@ -1,4 +1,4 @@
-import type { Account, Conversation, LoginChallenge, Message, Page, Segment, Session, SystemInfo } from './types'
+import type { Account, Conversation, ConversationPatch, LoginChallenge, Message, Page, Segment, Session, SystemInfo } from './types'
 
 const prefix = '/api/v1'
 let csrfToken: string | undefined
@@ -47,6 +47,7 @@ export const api = {
   clearSession() { csrfToken = undefined },
   accounts: () => request<Page<Account>>('/accounts'),
   conversations: (accountId?: string, cursor?: string | null) => request<Page<Conversation>>(`/conversations${params({ accountId, cursor, limit: 50 })}`),
+  updateConversation: (conversationId: string, patch: ConversationPatch) => request<Conversation>(`/conversations/${encodeURIComponent(conversationId)}`, json(patch, 'PATCH')),
   messages: (conversationId: string, cursor?: string | null) => request<Page<Message>>(`/conversations/${encodeURIComponent(conversationId)}/messages${params({ cursor, limit: 50 })}`),
   search: (query: string, accountId?: string, cursor?: string | null) => request<Page<Message>>(`/messages${params({ query, accountId, cursor, limit: 50 })}`),
   read: (conversationId: string) => request<void>(`/conversations/${encodeURIComponent(conversationId)}/read`, json({})),

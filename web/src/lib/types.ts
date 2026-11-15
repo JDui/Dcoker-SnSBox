@@ -34,11 +34,13 @@ export interface Conversation {
   lastMessage?: string
   lastMessageAt?: string
   unreadCount: number
+  unread?: boolean
   muted?: boolean
   pinned?: boolean
   memberCount?: number
   capabilities?: Capabilities
 }
+export interface ConversationPatch { pinned?: boolean; muted?: boolean; unread?: boolean }
 
 export interface Media {
   url?: string

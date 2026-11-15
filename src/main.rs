@@ -15,7 +15,7 @@ use axum::{
         IntoResponse, Response, Sse,
         sse::{Event, KeepAlive},
     },
-    routing::{get, post},
+    routing::{get, patch, post},
 };
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use config::{AccountConfig, Config};
@@ -151,6 +151,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/accounts/{id}/logout", post(account_logout))
         .route("/accounts/{id}/sync", post(account_sync))
         .route("/conversations", get(conversations))
+        .route("/conversations/{id}", patch(patch_conversation))
         .route(
             "/conversations/{id}/messages",
             get(messages).post(send_message),
@@ -543,17 +544,86 @@ async fn conversations(
     State(app): State<Arc<App>>,
     Query(p): Query<Page>,
 ) -> ApiResult<Json<Value>> {
-    let (limit, cursor) = paging(&p)?;
-    let (time, id) = cursor.clone().unwrap_or_default();
-    let rows:Vec<String>=sqlx::query_scalar("SELECT body FROM conversations WHERE (? IS NULL OR account_id=?) AND (?='' OR instr(lower(title),lower(?))>0) AND (?=0 OR COALESCE(last_at,'')<? OR (COALESCE(last_at,'')=? AND id<?)) ORDER BY COALESCE(last_at,'') DESC,id DESC LIMIT ?")
-        .bind(&p.account_id).bind(&p.account_id).bind(p.query.as_deref().unwrap_or("")).bind(p.query.as_deref().unwrap_or("")).bind(i64::from(cursor.is_some())).bind(&time).bind(&time).bind(id).bind(limit+1).fetch_all(&app.db).await?;
-    Ok(Json(page_result(
-        rows.into_iter()
-            .map(|s| serde_json::from_str(&s))
-            .collect::<Result<_, _>>()?,
-        limit,
-        "lastMessageAt",
-    )))
+    if p.query.as_deref().unwrap_or("").len() > 1024 {
+        return Err(ApiError::bad("搜索文字过长"));
+    }
+    let limit = p.limit.unwrap_or(50).clamp(1, 200);
+    let mut tx = app.db.begin().await?;
+    let revision: i64 =
+        sqlx::query_scalar("SELECT value FROM local_state WHERE key='conversation_order_revision'")
+            .fetch_one(&mut *tx)
+            .await?;
+    let cursor: Option<Value> = p
+        .cursor
+        .as_ref()
+        .map(|c| -> ApiResult<Value> {
+            if c.len() > 4096 {
+                return Err(ApiError::bad("游标无效"));
+            }
+            Ok(serde_json::from_slice(
+                &URL_SAFE_NO_PAD
+                    .decode(c)
+                    .map_err(|_| ApiError::bad("游标无效"))?,
+            )
+            .map_err(|_| ApiError::bad("游标无效"))?)
+        })
+        .transpose()?;
+    if let Some(c) = &cursor {
+        if c["revision"] != revision
+            || c["accountId"] != json!(p.account_id)
+            || c["query"] != json!(p.query.as_deref().unwrap_or(""))
+        {
+            return Err(ApiError(
+                StatusCode::CONFLICT,
+                "pagination_changed",
+                "会话排序或筛选已改变，请重新获取第一页".into(),
+            ));
+        }
+    }
+    let pinned = cursor
+        .as_ref()
+        .and_then(|c| c["pinned"].as_i64())
+        .unwrap_or(0);
+    let time = cursor
+        .as_ref()
+        .and_then(|c| c["time"].as_str())
+        .unwrap_or("");
+    let id = cursor.as_ref().and_then(|c| c["id"].as_str()).unwrap_or("");
+    let rows:Vec<String>=sqlx::query_scalar("SELECT body FROM conversations WHERE (? IS NULL OR account_id=?) AND (?='' OR instr(lower(title),lower(?))>0) AND (?=0 OR pinned<? OR (pinned=? AND (COALESCE(last_at,'')<? OR (COALESCE(last_at,'')=? AND id<?)))) ORDER BY pinned DESC,COALESCE(last_at,'') DESC,id DESC LIMIT ?")
+        .bind(&p.account_id).bind(&p.account_id).bind(p.query.as_deref().unwrap_or("")).bind(p.query.as_deref().unwrap_or("")).bind(i64::from(cursor.is_some())).bind(pinned).bind(pinned).bind(time).bind(time).bind(id).bind(limit+1).fetch_all(&mut *tx).await?;
+    tx.commit().await?;
+    let mut rows: Vec<Value> = rows
+        .into_iter()
+        .map(|s| serde_json::from_str(&s))
+        .collect::<Result<_, _>>()?;
+    let more = rows.len() > limit as usize;
+    rows.truncate(limit as usize);
+    let next = if more {
+        rows.last().map(|row|URL_SAFE_NO_PAD.encode(json!({"revision":revision,"pinned":i64::from(row["pinned"]==true),"time":row["lastMessageAt"].as_str().unwrap_or(""),"id":row["id"],"accountId":p.account_id,"query":p.query.as_deref().unwrap_or("")}).to_string()))
+    } else {
+        None
+    };
+    Ok(Json(json!({"items":rows,"nextCursor":next})))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ConversationPatch {
+    pinned: Option<bool>,
+    muted: Option<bool>,
+    unread: Option<bool>,
+}
+async fn patch_conversation(
+    State(app): State<Arc<App>>,
+    Path(id): Path<String>,
+    Json(p): Json<ConversationPatch>,
+) -> ApiResult<Json<Value>> {
+    if p.pinned.is_none() && p.muted.is_none() && p.unread.is_none() {
+        return Err(ApiError::bad("至少提供一项本地会话设置"));
+    }
+    store::preferences(&app.db, &id, p.pinned, p.muted, p.unread)
+        .await?
+        .map(Json)
+        .ok_or_else(ApiError::missing)
 }
 async fn message_page(app: &App, conversation: Option<&str>, p: Page) -> ApiResult<Json<Value>> {
     let (limit, cursor) = paging(&p)?;
@@ -589,7 +659,7 @@ async fn mark_read(State(app): State<Arc<App>>, Path(id): Path<String>) -> ApiRe
         .await?
         .ok_or_else(ApiError::missing)?;
     let mut tx = app.db.begin().await?;
-    sqlx::query("UPDATE conversations SET body=json_set(body,'$.unreadCount',0) WHERE id=?")
+    sqlx::query("UPDATE conversations SET body=json_set(body,'$.unreadCount',0,'$.unread',json('false')) WHERE id=?")
         .bind(&id)
         .execute(&mut *tx)
         .await?;
