@@ -63,6 +63,15 @@ pub async fn milky(app: &App, a: &AccountConfig, method: &str, body: Value) -> R
     }
     Ok(value["data"].clone())
 }
+fn validate_qq_identity(a: &AccountConfig, actual: &str) -> Result<()> {
+    if a.upstream_account_id
+        .as_deref()
+        .is_some_and(|expected| expected != actual)
+    {
+        bail!("Milky UIN does not match configured account");
+    }
+    Ok(())
+}
 fn conversation(a: &AccountConfig, upstream: &str, title: &str, kind: &str) -> Value {
     json!({"id":id(&[&a.id,kind,upstream]),"accountId":a.id,"platform":a.platform,"upstreamId":upstream,"title":if title.is_empty(){upstream}else{title},"kind":kind,"unreadCount":0,"lastMessage":null,"lastMessageAt":null,"avatarUrl":null})
 }
@@ -161,14 +170,49 @@ pub fn safe_link(s: &str) -> bool {
 
 pub async fn sync(app: &App, a: &AccountConfig) -> Result<()> {
     let guard = app.sync_locks.get(&a.id).unwrap().lock().await;
-    let result = sync_inner(app, a).await;
+    let managed = if a.management_url.is_some() {
+        Some(crate::llbot::online(app, a).await)
+    } else {
+        None
+    };
+    let result = match &managed {
+        Some(Ok(false)) => Ok(()),
+        Some(Err(_)) => Err(anyhow::anyhow!("LLBot identity or connection unverified")),
+        _ => sync_inner(app, a).await,
+    };
     if let Err(error) = &result {
         if let Some(sqlx::Error::Database(db)) = error.downcast_ref::<sqlx::Error>() {
             tracing::warn!(account=%a.id,code=?db.code(),message=%db.message(),"SQLite synchronization failure");
         }
     }
     drop(guard);
+    let previous = app.account_status.read().await.get(&a.id).cloned();
     let (status, message) = match &result {
+        Ok(()) if matches!(managed, Some(Ok(false))) => {
+            ("offline", "LLBot 管理接口确认账号尚未登录".into())
+        }
+        Ok(()) if matches!(managed, Some(Ok(true))) => (
+            "online",
+            "LLBot 已确认预期账号在线，Milky 身份核对通过；收发仍须验收".into(),
+        ),
+        Ok(()) if a.platform == "qq" => {
+            if previous.as_ref().is_some_and(|s| s.0 == "online") {
+                (
+                    "online",
+                    "QQ 已收到消息事件且事件流仍连接；投递和历史范围另行验证".into(),
+                )
+            } else if previous.as_ref().is_some_and(|s| s.0 == "offline") {
+                (
+                    "offline",
+                    "QQ 上游报告离线，API 可响应不代表重新登录".into(),
+                )
+            } else {
+                (
+                    "connecting",
+                    "QQ API 可用，但未获可靠在线证据；有效 UIN 不等于在线".into(),
+                )
+            }
+        }
         Ok(()) => (
             "online",
             "上游报告已登录在线；真实账号收发与完整历史尚未验收".to_string(),
@@ -246,6 +290,7 @@ async fn sync_inner(app: &App, a: &AccountConfig) -> Result<()> {
         bail!("thread pagination exceeded safety bound; history is partial")
     } else {
         let login = milky(app, a, "get_login_info", json!({})).await?;
+        validate_qq_identity(a, &string(&login["uin"]))?;
         let self_id = string(&login["uin"]);
         if self_id.is_empty() || self_id == "0" {
             bail!("QQ is not logged in");
@@ -417,8 +462,13 @@ async fn qq_events(app: &App, a: &AccountConfig) -> Result<()> {
             let frame = String::from_utf8(buffer.drain(..end + width).collect())?;
             for line in frame.lines().filter_map(|line| line.strip_prefix("data:")) {
                 let event: Value = serde_json::from_str(line.trim())?;
+                validate_qq_identity(a, &string(&event["self_id"]))?;
                 if event["event_type"] == "message_receive" {
                     qq_message(app, a, &event["data"], &string(&event["self_id"])).await?;
+                    app.account_status.write().await.insert(
+                        a.id.clone(),
+                        ("online".into(), "QQ 上游消息事件已到达".into()),
+                    );
                 } else if event["event_type"] == "bot_offline" {
                     app.account_status
                         .write()
@@ -469,6 +519,13 @@ pub fn start(app: Arc<App>) {
                 tokio::spawn(async move {
                     loop {
                         if qq_events(&state, &account).await.is_err() {
+                            state.account_status.write().await.insert(
+                                account.id.clone(),
+                                (
+                                    "connecting".into(),
+                                    "QQ 事件流断开，在线状态未知；正在重连".into(),
+                                ),
+                            );
                             tracing::warn!(account=%account.id,"QQ event stream disconnected; reconnecting, gap recovery not guaranteed");
                         }
                         tokio::time::sleep(Duration::from_secs(5)).await;
@@ -499,6 +556,23 @@ pub async fn submit(
     mut message: Value,
     key: String,
 ) {
+    if a.platform == "qq" && a.upstream_account_id.is_some() {
+        let checked = async {
+            let login = milky(&app, &a, "get_login_info", json!({})).await?;
+            validate_qq_identity(&a, &string(&login["uin"]))?;
+            if a.management_url.is_some() && !crate::llbot::online(&app, &a).await? {
+                bail!("QQ offline");
+            }
+            Ok::<(), anyhow::Error>(())
+        }
+        .await;
+        if checked.is_err() {
+            message["status"] = json!("failed");
+            message["error"] = json!("QQ 当前身份或在线状态与配置不符，未提交发送");
+            let _ = store::update_message(&app.db, &message).await;
+            return;
+        }
+    }
     message["status"] = json!("submitting");
     if store::update_message(&app.db, &message).await.is_err() {
         return;

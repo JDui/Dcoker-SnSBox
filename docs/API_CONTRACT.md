@@ -11,10 +11,24 @@
 
 ## 账号与能力
 
+第二轮账号工作流扩展：
+
+- `POST /api/v1/accounts/{id}/provision`，`{"confirmIsolated":true}`：仅创建配置所指上游中独立的 managed 账号，不接受/接管源目录；保留服务端配置的 upstreamAccountId。返回 `{created,accountId,message}`。已有同名账号返回确认信息而不覆盖。
+- `POST .../{id}/login` 现在接受 `{ "strategy"?: "auto|saved-device|qr", "allowQr"?: boolean }`（默认 auto + 允许二维码）；`POST .../{id}/logout` 接受 `{}`。建议携带稳定 `Idempotency-Key`；任务在发起前本地持久化，同键不同参数 409，网络结果不确定不自动重提。
+- 登录/注销返回 `{state,message,operationId,qrCode,loginUrl}`，state 是 `pending|accepted|blocked|uncertain`。`operationId` 是 SnSBox 任务 ID；不能把 pending 显示成已登录。`qrCode` 为受 Cookie 鉴权的同源图片地址，或 null；不会返回上游 token/二维码字节到 JSON。
+- `GET /api/v1/accounts/{id}/operations/{operationId}` 返回 `{id,accountId,kind,state,phase,message,qrCode,expiresAt,qrGeneration,createdAt}`。state 同上，phase 保留规范化任务状态（如 `queued,running,awaiting_scan,awaiting_approval,succeeded,failed,cancelled,expired,needs_review`）；前端每 2 秒查询至终态，二维码过期不冒充成功。
+- `expiresAt` / `createdAt` 是 RFC3339 字符串或 null；微信上游 Unix 秒 expiresAt 在后端转为 UTC 字符串。已知 starting/resuming/authenticating 等阶段返回 pending；未知阶段返回 uncertain。
+- `GET .../{id}/operations/{operationId}/qr?generation=N`：只有该账号本地登记且正在扫码的 login 任务可读取，不超过 1 MiB PNG，no-store。微信转发 generation，旧代次返回 409 `login_challenge_superseded`。
+- `POST .../{id}/operations/{operationId}/cancel`，`{}`：微信取消相同上游任务，不删除历史或凭据。LLBot 没有取消接口，返回 422；前端隐藏 QQ 取消按钮。
+- `GET /api/v1/system/compatibility`：只读固定目录元数据预检，不打开数据库、令牌或密钥；返回 `mode:"live-source-readonly"`、`nextStep:"exclusive-copy-required"` 和布局特征/计数。检测到 db_storage 不等于可解密。活跃真实 config 不能注册给 native。此轮不提供对任意服务器路径的网页接管接口。
+
+QQ Milky 的有效 UIN/HTTP 成功不再直接显示在线：缺少可靠在线证据时 status=connecting；收到消息事件可更新在线，断流/离线事件撤销该状态。网页发送仍按实际状态与能力控制。
+
+可选 LLBot 8.3.2 管理：QQ 配置 `managementUrl`、`managementTokenFile` 和必须提供的 `upstreamAccountId`（预期 UIN）。`managementTokenFile` 保存上游 `X-Webui-Token` 认证值，浏览器不可见。direct 模式复用统一登录/注销/任务/二维码接口；PMHQ 模式拒绝账号操作。auto+allowQr 请求二维码，saved-device 或禁止二维码时只请求指定 UIN 的 quick-login。二维码仅内存暂存，过期/重启失效，轮询不刷新；注销会撤销该账号的本地二维码。管理接口 online 与 UIN、Milky get_login_info、SSE self_id 和发送前身份均校验；错号不提交发送。无管理配置的旧 Lagrange 配置继续可用，但不开放网页登录/注销。部署入口见 `deploy/compose.llbot.example.yaml`。
+
 - `GET /api/v1/accounts`
 - `GET /api/v1/accounts/{accountId}`
-- `POST /api/v1/accounts/{accountId}/login`，`{}`：请求上游登录；返回 `{ "state": "pending|blocked|accepted", "message": "...", "loginUrl": null, "qrCode": null }`。pending 必须提示用户到上游受保护管理界面继续；不能显示登录成功。二维码没有安全接入时不下发。
-- `POST /api/v1/accounts/{accountId}/logout`，`{}`：上游不支持远程注销时返回 422 `unsupported`，保留记录与凭据。
+- `POST /api/v1/accounts/{accountId}/login` / `logout`：使用上方账号任务契约；pending 不能显示登录成功。未配置或 Milky 无管理接口时返回 blocked，保留记录与凭据。
 - `POST /api/v1/accounts/{accountId}/sync`，`{}`：主动拉取上游会话及最近历史，返回 `{ "synced": true, "message": "..." }`；错误不会伪装成功。后台也定期同步。
 
 账号对象：

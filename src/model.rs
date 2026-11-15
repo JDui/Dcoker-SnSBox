@@ -41,7 +41,7 @@ pub fn search_text(segments: &Value) -> String {
         .collect::<Vec<_>>()
         .join(" ")
 }
-pub fn capabilities(platform: &str, configured: bool) -> Value {
+pub fn capabilities(platform: &str, configured: bool, managed: bool) -> Value {
     let mut map = serde_json::Map::new();
     for key in [
         "login", "logout", "text", "image", "video", "file", "sticker", "miniApp", "history",
@@ -55,7 +55,8 @@ pub fn capabilities(platform: &str, configured: bool) -> Value {
             }
         } else if key == "sticker"
             || key == "miniApp"
-            || (platform == "qq" && matches!(key, "login" | "logout" | "file"))
+            || (platform == "qq"
+                && (key == "file" || (!managed && matches!(key, "login" | "logout"))))
         {
             (
                 "unsupported",

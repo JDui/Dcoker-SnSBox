@@ -176,6 +176,62 @@ pub async fn update_message(db: &SqlitePool, body: &Value) -> Result<()> {
 mod tests {
     use super::*;
     #[tokio::test]
+    async fn old_schema_migration_preserves_preferences_across_sync_and_restart() {
+        let root = std::env::temp_dir().join(format!("snsbox-upgrade-{}", uuid::Uuid::new_v4()));
+        let migrations = root.join("migrations");
+        std::fs::create_dir_all(&migrations).unwrap();
+        std::fs::write(
+            migrations.join("0001_initial.sql"),
+            include_str!("migrations/0001_initial.sql"),
+        )
+        .unwrap();
+        std::fs::write(
+            migrations.join("0002_remote_media.sql"),
+            include_str!("migrations/0002_remote_media.sql"),
+        )
+        .unwrap();
+        let path = root.join("state.sqlite");
+        let db = SqlitePoolOptions::new()
+            .connect_with(
+                SqliteConnectOptions::new()
+                    .filename(&path)
+                    .create_if_missing(true),
+            )
+            .await
+            .unwrap();
+        sqlx::migrate::Migrator::new(migrations.as_path())
+            .await
+            .unwrap()
+            .run(&db)
+            .await
+            .unwrap();
+        let c = json!({"id":"c","accountId":"a","upstreamId":"peer","kind":"direct","title":"old","unreadCount":2});
+        sqlx::query("INSERT INTO conversations(id,account_id,upstream_id,kind,title,body) VALUES('c','a','peer','direct','old',?)").bind(c.to_string()).execute(&db).await.unwrap();
+        db.close().await;
+        let db = open(&path).await.unwrap();
+        let migrated = body(&db, "conversations", "c").await.unwrap().unwrap();
+        assert_eq!(migrated["title"], "old");
+        assert_eq!(migrated["unreadCount"], 2);
+        assert_eq!(migrated["pinned"], false);
+        assert_eq!(migrated["unread"], true);
+        preferences(&db, "c", Some(true), Some(true), Some(false))
+            .await
+            .unwrap();
+        let mut fresh = c.clone();
+        fresh["title"] = json!("upstream changed");
+        conversation(&db, &fresh).await.unwrap();
+        db.close().await;
+        let db = open(&path).await.unwrap();
+        let saved = body(&db, "conversations", "c").await.unwrap().unwrap();
+        assert_eq!(saved["pinned"], true);
+        assert_eq!(saved["muted"], true);
+        assert_eq!(saved["unread"], false);
+        assert_eq!(saved["unreadCount"], 0);
+        assert_eq!(saved["title"], "upstream changed");
+        db.close().await;
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[tokio::test]
     async fn receipt_event_race_search_and_restart() {
         let path =
             std::env::temp_dir().join(format!("snsbox-store-{}.sqlite", uuid::Uuid::new_v4()));

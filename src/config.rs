@@ -11,6 +11,10 @@ pub struct AccountConfig {
     pub base_url: Option<String>,
     pub token_file: Option<PathBuf>,
     pub upstream_account_id: Option<String>,
+    pub management_url: Option<String>,
+    pub management_token_file: Option<PathBuf>,
+    #[serde(skip)]
+    pub management_token: String,
     #[serde(skip)]
     pub token: String,
 }
@@ -22,7 +26,11 @@ impl AccountConfig {
         if self.platform == "wechat" {
             "agent-wechat"
         } else {
-            "lagrange-milky"
+            if self.management_url.is_some() {
+                "llbot-milky"
+            } else {
+                "lagrange-milky"
+            }
         }
     }
     pub fn url(&self, pieces: &[&str]) -> Result<url::Url> {
@@ -123,6 +131,36 @@ impl Config {
             }
             if a.platform != "wechat" && a.platform != "qq" {
                 bail!("unknown platform");
+            }
+            if let Some(base) = &a.management_url {
+                let u = url::Url::parse(base)?;
+                if a.platform != "qq"
+                    || !matches!(u.scheme(), "http" | "https")
+                    || u.host_str().is_none()
+                    || !u.username().is_empty()
+                    || u.password().is_some()
+                    || u.query().is_some()
+                    || u.fragment().is_some()
+                    || u.path() != "/"
+                {
+                    bail!("managementUrl must be a QQ LLBot http(s) origin");
+                }
+                if a.upstream_account_id
+                    .as_deref()
+                    .is_none_or(|s| s.is_empty() || !s.bytes().all(|c| c.is_ascii_digit()))
+                {
+                    bail!("LLBot management requires expected QQ UIN in upstreamAccountId");
+                }
+                a.management_token = std::fs::read_to_string(
+                    a.management_token_file
+                        .as_ref()
+                        .context("managementTokenFile required")?,
+                )?
+                .trim()
+                .to_string();
+                if a.management_token.is_empty() || a.management_token.contains(['\r', '\n']) {
+                    bail!("invalid management token");
+                }
             }
             if let Some(ref base) = a.base_url {
                 let url = url::Url::parse(base)?;

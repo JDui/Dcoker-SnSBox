@@ -1,0 +1,28 @@
+# Copy to repository root as compose.llbot.yaml, after running prepare-llbot.mjs.
+# Runtime/download verification status is recorded in BACKEND_IMPLEMENTATION.md.
+services:
+  snsbox:
+    environment:
+      SNSBOX_ACCOUNTS_FILE: /run/config/accounts.json
+    volumes:
+      - ./private/accounts.json:/run/config/accounts.json:ro
+      - ./private/qq-llbot/milky-token:/run/secrets/llbot-milky-token:ro
+      - ./private/qq-llbot/management-token:/run/secrets/llbot-management-token:ro
+  qq-llbot:
+    image: ${SNSBOX_LLBOT_IMAGE:-linyuchen/llbot:8.3.2}
+    platform: linux/amd64
+    network_mode: service:snsbox
+    depends_on: [snsbox]
+    restart: unless-stopped
+    working_dir: /app/llbot
+    # Upstream startup.sh rewrites defaults for exposed ports. Our fixed loopback config
+    # uses the upstream executable directly; no public management port is published.
+    entrypoint: [node, --enable-source-maps, ./llbot.js]
+    volumes:
+      - ./private/qq-llbot/data:/app/llbot/data
+      - ./private/qq-llbot/default_config.json:/app/llbot/default_config.json:ro
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    # Upstream can print QR challenges. Keep them out of Docker log storage.
+    logging:
+      driver: none

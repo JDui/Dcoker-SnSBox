@@ -1,5 +1,8 @@
+mod account_ops;
 mod adapters;
 mod config;
+mod legacy;
+mod llbot;
 mod model;
 mod remote_media;
 mod store;
@@ -47,6 +50,7 @@ pub struct App {
     sync_locks: HashMap<String, Mutex<()>>,
     send_lock: Mutex<()>,
     media_lock: Mutex<()>,
+    login_qr: Mutex<HashMap<String, llbot::QrImage>>,
 }
 #[derive(Debug)]
 struct ApiError(StatusCode, &'static str, String);
@@ -142,13 +146,21 @@ async fn main() -> anyhow::Result<()> {
         account_status: RwLock::new(HashMap::new()),
         send_lock: Mutex::new(()),
         media_lock: Mutex::new(()),
+        login_qr: Mutex::new(HashMap::new()),
     });
     let protected = Router::new()
         .route("/session", get(session).delete(logout))
         .route("/accounts", get(accounts))
         .route("/accounts/{id}", get(account))
-        .route("/accounts/{id}/login", post(account_login))
-        .route("/accounts/{id}/logout", post(account_logout))
+        .route("/accounts/{id}/login", post(account_ops::login))
+        .route("/accounts/{id}/logout", post(account_ops::logout))
+        .route("/accounts/{id}/provision", post(account_ops::provision))
+        .route("/accounts/{id}/operations/{op}", get(account_ops::get))
+        .route("/accounts/{id}/operations/{op}/qr", get(account_ops::qr))
+        .route(
+            "/accounts/{id}/operations/{op}/cancel",
+            post(account_ops::cancel),
+        )
         .route("/accounts/{id}/sync", post(account_sync))
         .route("/conversations", get(conversations))
         .route("/conversations/{id}", patch(patch_conversation))
@@ -162,6 +174,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/media/{id}", get(media))
         .route("/events", get(events))
         .route("/system", get(system))
+        .route("/system/compatibility", get(legacy::compatibility))
         .route_layer(middleware::from_fn_with_state(app.clone(), authenticate));
     let api = protected
         .route("/session", post(login))
@@ -392,7 +405,7 @@ async fn account_value(app: &App, a: &AccountConfig) -> Value {
         .get(&a.id)
         .cloned()
         .unwrap_or(default);
-    json!({"id":a.id,"platform":a.platform,"displayName":a.display_name,"status":status,"statusMessage":message,"adapter":a.adapter(),"upstreamConfigured":a.configured(),"capabilities":model::capabilities(&a.platform,a.configured()),"historyScope":if a.platform=="qq"{"SnSBox 接收的事件和最近群历史；QQ 私聊初始历史与断线期间完整补齐未实现"}else{"已同步上游资料中的最近历史与事件；不保证所有设备的完整记录"},"mailUrl":if a.platform=="qq"{Some("https://mail.qq.com/")}else{None}})
+    json!({"id":a.id,"platform":a.platform,"displayName":a.display_name,"status":status,"statusMessage":message,"adapter":a.adapter(),"upstreamConfigured":a.configured(),"capabilities":model::capabilities(&a.platform,a.configured(),a.management_url.is_some()),"historyScope":if a.platform=="qq"{"SnSBox 接收的事件和最近群历史；QQ 私聊初始历史与断线期间完整补齐未实现"}else{"已同步上游资料中的最近历史与事件；不保证所有设备的完整记录"},"mailUrl":if a.platform=="qq"{Some("https://mail.qq.com/")}else{None}})
 }
 async fn accounts(State(app): State<Arc<App>>) -> Json<Value> {
     let mut items = vec![];
@@ -403,79 +416,6 @@ async fn accounts(State(app): State<Arc<App>>) -> Json<Value> {
 }
 async fn account(State(app): State<Arc<App>>, Path(id): Path<String>) -> ApiResult<Json<Value>> {
     Ok(Json(account_value(&app, find_account(&app, &id)?).await))
-}
-async fn account_login(
-    State(app): State<Arc<App>>,
-    Path(id): Path<String>,
-) -> ApiResult<Json<Value>> {
-    let a = find_account(&app, &id)?;
-    if !a.configured() {
-        return Ok(Json(
-            json!({"state":"blocked","message":"请先在服务端配置上游；没有执行登录","loginUrl":null,"qrCode":null}),
-        ));
-    }
-    if a.platform == "qq" {
-        return Ok(Json(
-            json!({"state":"blocked","message":"Milky 不提供登录管理 API，请在独立 Lagrange 上游完成扫码登录；未修改官方 QQ 令牌","loginUrl":null,"qrCode":null}),
-        ));
-    }
-    let operation = adapters::wx(
-        &app,
-        a,
-        &["login-attempts"],
-        Some(json!({"allowQr":false})),
-        Some(&Uuid::new_v4().to_string()),
-    )
-    .await
-    .map_err(|_| {
-        ApiError(
-            StatusCode::BAD_GATEWAY,
-            "upstream_error",
-            "上游未能创建登录任务；请检查账号与资料配置".into(),
-        )
-    })?;
-    Ok(Json(
-        json!({"state":"pending","message":"已请求上游尝试保存的登录态，请查看上游管理界面完成确认；需要扫码时在上游操作","operationId":operation["id"],"loginUrl":null,"qrCode":null}),
-    ))
-}
-async fn account_logout(
-    State(app): State<Arc<App>>,
-    Path(id): Path<String>,
-) -> ApiResult<Json<Value>> {
-    let a = find_account(&app, &id)?;
-    if !a.configured() {
-        return Err(ApiError::unsupported("账号尚未配置"));
-    }
-    if a.platform == "qq" {
-        return Err(ApiError::unsupported(
-            "Milky 没有远程注销 API，请在 QQ 上游管理；记录和令牌未删除",
-        ));
-    }
-    let operation = adapters::wx(
-        &app,
-        a,
-        &["logout"],
-        Some(json!({})),
-        Some(&Uuid::new_v4().to_string()),
-    )
-    .await
-    .map_err(|_| {
-        ApiError(
-            StatusCode::BAD_GATEWAY,
-            "upstream_error",
-            "上游注销未获可靠结果，请检查上游状态".into(),
-        )
-    })?;
-    app.account_status.write().await.insert(
-        id,
-        (
-            "connecting".into(),
-            "已请求注销，等待上游确认；历史保留".into(),
-        ),
-    );
-    Ok(Json(
-        json!({"state":"pending","message":"注销任务已提交，不删除本地历史或配置","operationId":operation["id"],"loginUrl":null,"qrCode":null}),
-    ))
 }
 async fn account_sync(
     State(app): State<Arc<App>>,

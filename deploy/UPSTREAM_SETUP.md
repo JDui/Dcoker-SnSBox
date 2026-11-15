@@ -42,8 +42,34 @@ Agent WeChat 的普通 HTTP listener **只允许 loopback**，不能直接改成
 docker compose -f compose.yaml -f compose.upstreams.yaml up -d
 ```
 
-启动尚无资料的微信守护进程，不代表已有微信账号。先参照固定版本的 `packages/native-client-rust/CLI.md` 注册**独立准备且源已停止的完整资料副本**，在上游执行登录，并使用其账号 ID 更新 `accounts.json`。SnSBox 不代为执行 `profile add`、`store import` 或任何原目录接管。当前微信策略需要支持的 Linux 微信资料布局，创建全新资料在上游仍属于实验范围；没有这项前置条件时应停留在未接通状态。
+启动空白微信守护进程不代表已有登录账号。SnSBox 可创建独立 managed 账号并请求登录，但本轮空白预登录没有取得二维码。若另行验证已有资料路线，参照固定版本的 `packages/native-client-rust/CLI.md` 注册**独立准备、经过一致性确认且当前无其他写入者的完整资料副本**；活跃 WS 原目录保持只读。SnSBox 不代为执行 `profile add`、`store import` 或原目录接管。支持的 Linux 资料布局、密钥和保存信任均需独立验收，不能把本次传输失败推断为资料兼容结果。
 
 QQ 在独立 Lagrange 工作目录保存 `Uin.ks`，不是官方 `.config/QQ` 的可互换令牌。按上游交互完成扫码或设备确认后，`get_login_info` 才能返回有效账号。若需要交互显示二维码，可对明确准备的这个隔离侧车使用前台 `docker compose ... up qq-upstream`；二维码和日志含私人材料，不提交或截图上传。本步骤没有自动执行扫码、密码登录或发送消息。
 
 上游升级时一次只升级一个组件，先重新核对 HTTP/事件结构。此示例未证明账号不会掉线、完整历史会迁移或官方客户端可无缝切回。
+
+## QQ 网页登录与注销：LLBot 8.3.2 可选路线
+
+新部署优先使用受维护的 [LuckyLilliaBot v8.3.2](https://github.com/LuckyLilliaDev/LuckyLilliaBot/releases/tag/v8.3.2) direct 模式。它提供登录信息、扫码和注销 HTTP API；Milky 继续负责消息。SnSBox 不实现私有协议，不复用 `.config/QQ` 的官方令牌。此轮真实镜像下载未完成，实际启动未验证；具体错误见后端记录。
+
+```sh
+# 在 SnSBox 根目录，为目标 QQ 号创建全新 private/qq-llbot；存在时会拒绝覆盖。
+node deploy/prepare-llbot.mjs YOUR_QQ_UIN
+cp deploy/compose.llbot.example.yaml compose.llbot.yaml
+# 将 private/qq-llbot/account-entry.json 合并到 private/accounts.json 数组。
+# Linux 上确保聚合服务 UID 10001 能读取它的三个单文件 bind：
+sudo chown 10001:10001 private/accounts.json private/qq-llbot/milky-token private/qq-llbot/management-token
+docker compose -f compose.yaml -f compose.llbot.yaml up -d
+```
+
+已有微信 accounts 配置保留，只替换对应 QQ 条目；不要同时启动两个指向同一 QQ data 的实例。默认镜像是 `linyuchen/llbot:8.3.2`，可通过 `SNSBOX_LLBOT_IMAGE` 选择可信镜像站的同版镜像。Compose 只启动独立 direct 模式，无官方客户端、PMHQ 或旧 config 挂载。Milky 3010 和管理 3080 均为共享网络空间内的 loopback，不公开端口。
+
+初始化脚本复用上游的 WebUI 密码认证格式：生成随机密码文件、对应 `X-Webui-Token` 值、独立 Milky token，均不打印内容。密码认证使用上游规定的 SHA-256，属于认证机制，并非手工文件哈希校验。Linux 文件权限与容器 UID 如上处理；Windows bind 权限由 Docker Desktop 映射。QQ Auth Token 另外依赖上游自己的授权服务；需要时将**专用于该独立 LLBot 实例**的有效 Auth Token 写入 `private/qq-llbot/data/auth_token.txt`，上游 watcher 读取。不要把官方 QQ 登录令牌、微信 key 或 SnSBox 管理员密码填进去。此轮没有获取或提交外部服务 Auth Token。
+
+登录由 SnSBox 发起，PNG 在受鉴权的同源接口显示；QR 不写磁盘，过期/重启后需要用户重新发起。配置的预期 UIN 必须与管理接口、Milky 自身身份和事件 self_id 一致，否则拒绝同步/发送；扫码成另一个账号不能当作配置账号登录成功。LLBot 没有取消接口；关闭窗口不代表远端扫码任务取消。注销使用 direct 模式 logout，保留独立资料。QQ 日志可能包含二维码，示例禁用 Docker 日志持久化；不把扫码内容或认证文件提交 Git。
+
+## 微信本轮实际结果与资料副本
+
+固定源码已完成 AMD64 编译，空白独立 daemon 健康、managed 账号创建，以及 SnSBox 的登录失败/注销完成状态映射均已实测。空白登录返回 `login_failed`，没有二维码，不能用该结果承诺新账号登录可用。详细有界诊断见后端记录。
+
+SnSBox 的“创建独立账号”只创建 managed 记录，不传 `--official`、不注册外部路径。现有活跃 WS 源只能只读预检；只有另行准备并确认一致性的完整副本才可进入上游的独占 profile 流程。普通文件复制正在写入的数据库不是一致性快照。副本必须有独立写入所有权，不能指向原目录；原客户端继续使用原源。导入可能改写副本，因此保留导入前副本；回滚不意味着让官方客户端直接读取 native 已改写的资料。目录识别、密钥兼容、历史可读、令牌复用仍是分别待验收的项目。
