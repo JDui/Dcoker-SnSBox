@@ -1,28 +1,12 @@
-# Build outputs
 /target/
-**/node_modules/
+/web/node_modules/
 /web/dist/
-
-# Local state and credentials
-.env
-.env.*
-!.env.example
-/data/
 /config/
+/data/
 /secrets/
-/profiles/
-/backups/
-/logs/
-*.db
-*.db-wal
-*.db-shm
-*.sqlite
-*.sqlite3
+/.env
 *.log
-*.pem
-*.key
-
-# Local editor/OS files
-.DS_Store
-Thumbs.db
-.idea/
+*.sqlite*
+*.db
+/artifacts/
+/.references/
