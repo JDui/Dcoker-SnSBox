@@ -1,6 +1,6 @@
 # 技术约束手册
 
-日期：2026-11-15。本文为设计约束，尚无实现验证。
+日期：2026-11-15。本文为设计约束；现已开始实施，实际实现和验证以 EXECUTION_STATUS.md 及前后端实施记录为准。
 
 ## 1. 技术栈与组件边界
 
@@ -18,7 +18,7 @@
 
 参考：[Axum](https://docs.rs/axum/latest/axum/)、[Vite](https://vite.dev/guide/)、[shadcn/ui](https://ui.shadcn.com/docs)、[SQLx](https://github.com/launchbadge/sqlx)、[TanStack Query](https://tanstack.com/query/latest)。
 
-## 2. 建议模块（尚未创建）
+## 2. 建议模块（实现时按规模合并）
 
 ```text
 crates/domain/          统一身份、消息、能力与错误模型
