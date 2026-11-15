@@ -4,6 +4,14 @@
 
 ## 准备来源
 
+仅有 Windows SMB 映射时，可先枚举服务器已有的 Previous Versions，无需 SSH，也不会创建快照或打开数据库：
+
+```powershell
+.\deploy\probe-smb-snapshots.ps1 -Path 'X:\Docker\wechat\config'
+```
+
+`available` 会列出服务器返回的 `@GMT` 候选目录；仍需确认目录确属固定快照、覆盖完整 profile 和 WAL，并按下列步骤准备来源。`unsupported`、`none_advertised`、`access_denied` 或 `probe_failed` 都不会触发热复制、创建快照或自动放宽读取条件。当前用户共享实测为 `unsupported`；没有 SSH 也继续提供离线准备能力，但不能由文件共享推出可读取 NAS 进程内存。
+
 1. 在 SnSBox 自有数据目录以外准备完整的独立微信账号资料，包括 `db_storage` 与快照中的 WAL 等状态。不要把运行中的 WS config 直接设为来源；普通热复制不等于一致性快照。原 WS 可以继续运行，独立快照的获得方式需由该部署环境保证。
 2. 使用与该账号匹配、符合上游 `KeyFile` 格式的数据库密钥文件。Linux 上仅允许服务 UID 10001 读取，权限设为 0600，父目录保护为 0700。保存的登录令牌不是数据库密钥。密钥不要粘贴到浏览器或聊天，也不要提交 Git。Docker Desktop 的 bind 权限若被上游判为不安全，应使用独立 Linux 私密卷存放密钥；不要降低校验。
 3. 从 [history-sources.example.json](history-sources.example.json) 复制到忽略的 `private/history-sources.json`，填写来源和实际捕获时间。只有已经确认来源一致性时才设置 `confirmedConsistentSnapshot: true`。`profilePath` 是账号资料根，不是外层 Compose 项目根；保留其原账号目录名，使其与密钥文件的账号绑定一致，示例 `wechat-account` 只是占位。明文兼容导出可显式设置 `allowPlaintext: true` 并删除 `keysFile`；这不是对加密库自动解密的开关。
