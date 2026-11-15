@@ -66,3 +66,5 @@ QQ 实际部署尝试与阻塞：Lagrange 固定源码 Docker build 在 alpine �
 只读预检的单项测试 `metadata_inspection_does_not_create_files` 通过：固定加密字节合成文件读取前后目录只有该文件，未创建 WAL/锁。未对真实源重复测试。
 
 交接清理：本线程创建的微信 daemon、聚合链路探测容器、四个上游构建容器和空白账号测试卷均已清理；合成冒烟自行清理自己的容器/匿名卷。没有操作主线程 npm 预览。保留 `snsbox-cargo-cache`、`snsbox-build-target`、`snsbox-wx-target` 编译缓存卷及本地构建镜像，方便后续复用。临时目录 `%TEMP%/snsbox-wx-live-empty` 的递归清理被自动审批审查以 `blocked by policy` 拦截，因此仅该临时合成配置/随机测试 API 凭据目录尚未删除（无真实账号资料）；未继续绕过审查。上游源码缓存、未完成的 LLBot zip 和仅输出脱敏错误类别的诊断 example 也保留在 `%TEMP%`，不是 Git 或交付包的一部分。下载进程已停止。
+
+后续最小清理：核对绝对路径及普通文件属性后，非递归删除本轮生成的 token 与 headers 两个随机测试凭据文件成功；没有重试递归删除。snsbox-wx-live-empty 目录仅保留 server.toml 和 accounts.json 合成配置（引用已删除的 token 路径），无凭据内容。公开源码、诊断 example、编译缓存及不完整下载仍保留。
