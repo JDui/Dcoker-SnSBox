@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useLayoutEffect, useRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { ArrowDown, ArrowUpRight, ChevronDown, CircleHelp, Inbox, LoaderCircle, Pin, Search, SlidersHorizontal, VolumeX, X } from 'lucide-react'
 import type { Account, Conversation, ConversationPatch, Message, Mode, Platform } from '../lib/types'
@@ -13,14 +13,38 @@ export function ConversationList({ conversations, accounts, activeKey, platform,
   operations: Record<string, boolean>; onConversationChange: (conversation: Conversation, patch: ConversationPatch) => void
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
+  const filterRef = useRef<HTMLDivElement>(null)
+  const selectionRef = useRef<HTMLSpanElement>(null)
+  const measuredFilter = useRef(false)
+  useLayoutEffect(() => {
+    const root = filterRef.current, marker = selectionRef.current
+    if (!root || !marker) return
+    let frame: number | undefined
+    let disposed = false
+    const measure = () => {
+      if (disposed) return
+      const selected = root.querySelector<HTMLButtonElement>(`[data-platform="${platform}"]`)
+      if (!selected) return
+      const outer = root.getBoundingClientRect(), box = selected.getBoundingClientRect()
+      if (!measuredFilter.current) { marker.style.transition = 'none'; measuredFilter.current = true; frame = requestAnimationFrame(() => marker.style.removeProperty('transition')) }
+      marker.style.width = `${box.width}px`; marker.style.height = `${box.height}px`
+      marker.style.transform = `translate(${box.left - outer.left + root.scrollLeft}px, ${box.top - outer.top}px)`
+      marker.style.opacity = '1'
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(root); root.querySelectorAll('button').forEach(button => observer.observe(button))
+    document.fonts?.ready.then(measure)
+    return () => { disposed = true; observer.disconnect(); cancelAnimationFrame(frame || 0); marker.style.removeProperty('transition') }
+  }, [platform])
   const virtualizer = useVirtualizer({ count: conversations.length, getScrollElement: () => scrollRef.current, estimateSize: () => 94, overscan: 6, getItemKey: index => conversationKey(conversations[index]) })
   const selectedAccount = accounts.find(account => accountKey(account) === accountFilter)
   const matchingConversations = search.trim() ? conversations.filter(conversation => conversation.title.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())) : []
   return <aside className="conversation-panel" aria-label="会话列表">
-    <div className="sidebar-brand"><Brand /><span className="workspace-label">你的消息空间</span></div>
+    <div className="sidebar-brand"><Brand /><span className="workspace-label">消息汇总</span></div>
     <div className="sidebar-heading"><h1>{search.trim() ? '搜索历史' : '消息'}</h1><div className="sidebar-heading-actions"><span className="conversation-count">{conversations.length || '—'}</span><IconButton label="管理账号" onClick={onManageAccounts}><SlidersHorizontal size={19} /></IconButton></div></div>
     <div className="search-field"><Search size={17} /><input id="workspace-search" type="search" placeholder="搜索联系人和已同步消息" aria-label="搜索联系人和已同步消息" value={search} onChange={event => onSearch(event.target.value)} autoComplete="off" />{search && <button type="button" onClick={() => onSearch('')} aria-label="清除搜索"><X size={15} /></button>}<kbd>/</kbd></div>
-    <div className="platform-tabs" aria-label="按平台筛选">{(['all', 'wechat', 'qq'] as const).map(value => <button key={value} type="button" onClick={() => onPlatform(value)} className={cn(platform === value && 'is-active')} aria-pressed={platform === value}>{value === 'all' ? '全部消息' : <><span className={`tiny-dot dot-${value}`} />{platformName(value)}</>}</button>)}</div>
+    <div ref={filterRef} className="platform-tabs" aria-label="按平台筛选"><span ref={selectionRef} className="filter-selection" aria-hidden="true" />{(['all', 'wechat', 'qq'] as const).map(value => <button key={value} type="button" data-platform={value} onClick={() => onPlatform(value)} className={cn(platform === value && 'is-active')} aria-pressed={platform === value}>{value === 'all' ? '全部消息' : <><span className={`tiny-dot dot-${value}`} />{platformName(value)}</>}</button>)}</div>
     <div className="sidebar-list-label"><span>{search.trim() ? '本地已同步历史' : '最近会话'}</span><Menu label="筛选账号" trigger={<span className="account-filter-label">{selectedAccount ? selectedAccount.displayName : '全部账号'}<ChevronDown size={12} /></span>}><MenuItem onSelect={() => onAccountFilter('')}>全部账号</MenuItem>{accounts.map(account => <MenuItem key={accountKey(account)} onSelect={() => onAccountFilter(accountKey(account))}><PlatformBadge platform={account.platform} />{account.displayName}</MenuItem>)}</Menu></div>
     <div className="conversation-scroll" ref={scrollRef}>
       {search.trim() ? <div className="search-results">
@@ -28,7 +52,7 @@ export function ConversationList({ conversations, accounts, activeKey, platform,
         <p className="search-section-label">消息内容 · 仅已同步历史</p>
         {searchLoading && <div className="list-state"><LoaderCircle size={21} className="spinning" /><p>正在搜索已同步历史…</p></div>}
         {searchError && <div className="list-state"><CircleHelp size={23} /><p>{searchError}</p></div>}
-        {!searchLoading && !searchError && !searchResults.length && <div className="list-state"><Search size={26} /><strong>还没有找到</strong><p>试试其他关键词。这里只搜索 SnSBox 已同步的消息。</p></div>}
+        {!searchLoading && !searchError && !searchResults.length && <div className="list-state"><Search size={26} /><strong>无匹配结果</strong><p>试试其他关键词。这里只搜索 SnSBox 已同步的消息。</p></div>}
         {searchResults.map(message => {
           const conversation = conversations.find(item => item.id === message.conversationId && item.accountId === message.accountId && item.platform === message.platform)
           const account = accounts.find(item => item.id === message.accountId && item.platform === message.platform)
@@ -38,7 +62,7 @@ export function ConversationList({ conversations, accounts, activeKey, platform,
       </div> : <>
         {loading && <div className="conversation-skeletons">{Array.from({ length: 5 }, (_, i) => <div className="conversation-skeleton" key={i}><span /><div><i /><i /></div></div>)}</div>}
         {error && <div className="list-state"><CircleHelp size={26} /><strong>会话暂时不可用</strong><p>{error}</p><Button variant="secondary" size="sm" onClick={onRetry}>重新加载</Button></div>}
-        {!loading && !error && !conversations.length && <div className="list-state"><Inbox size={29} strokeWidth={1.4} /><strong>{accounts.some(account => account.status === 'online') ? '这里还很安静' : '等待你的第一个会话'}</strong><p>{accounts.some(account => account.status === 'online') ? '拉取已同步历史后，会话会出现在这里。' : '连接微信或 QQ 后，在一处继续你的对话。'}</p><Button variant="secondary" size="sm" onClick={onManageAccounts}>管理账号</Button></div>}
+        {!loading && !error && !conversations.length && <div className="list-state"><Inbox size={29} strokeWidth={1.4} /><strong>{accounts.some(account => account.status === 'online') ? '暂无会话' : '尚未接入账号'}</strong><p>{accounts.some(account => account.status === 'online') ? '拉取已同步历史后，会话会出现在这里。' : '连接账号并同步后显示会话。'}</p><Button variant="secondary" size="sm" onClick={onManageAccounts}>管理账号</Button></div>}
         <div className="virtual-conversations" style={{ height: virtualizer.getTotalSize() }}>{virtualizer.getVirtualItems().map(row => {
           const conversation = conversations[row.index]
           const account = accounts.find(item => item.id === conversation.accountId && item.platform === conversation.platform)
@@ -53,6 +77,6 @@ export function ConversationList({ conversations, accounts, activeKey, platform,
         {hasMore && <Button variant="ghost" className="load-more-list" onClick={onLoadMore} disabled={loadingMore}>{loadingMore ? <LoaderCircle size={15} className="spinning" /> : <ArrowDown size={15} />}加载更多会话</Button>}
       </>}
     </div>
-    <div className="sidebar-footer"><span className="sidebar-footer-dot" /><span>{mode === 'demo' ? '界面演示 · 所有内容均为合成' : '独立账号，从容交流'}</span><span className="sidebar-footer-decoration">✳</span></div>
+    <div className="sidebar-footer"><span className="sidebar-footer-dot" /><span>{mode === 'demo' ? '界面演示 · 所有内容均为合成' : '本地会话状态 · 账号独立'}</span></div>
   </aside>
 }

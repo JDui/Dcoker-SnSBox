@@ -1,4 +1,4 @@
-import type { Account, Conversation, ConversationPatch, LoginChallenge, Message, Page, Segment, Session, SystemInfo } from './types'
+import type { Account, AccountOperation, CompatibilityReport, Conversation, ConversationPatch, LoginChallenge, LoginOptions, Message, Page, Segment, Session, SystemInfo } from './types'
 
 const prefix = '/api/v1'
 let csrfToken: string | undefined
@@ -53,8 +53,12 @@ export const api = {
   read: (conversationId: string) => request<void>(`/conversations/${encodeURIComponent(conversationId)}/read`, json({})),
   send: (conversationId: string, segments: Segment[], key: string) => request<Message>(`/conversations/${encodeURIComponent(conversationId)}/messages`, { ...json({ segments }), headers: { 'Content-Type': 'application/json', 'Idempotency-Key': key } }),
   upload: (accountId: string, file: File) => request<{ id: string; url: string; name: string; mimeType: string; size: number }>(`/media${params({ accountId, name: file.name })}`, { method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file }, 60_000),
-  loginAccount: (accountId: string) => request<LoginChallenge>(`/accounts/${encodeURIComponent(accountId)}/login`, json({})),
-  logoutAccount: (accountId: string) => request<{ message?: string }>(`/accounts/${encodeURIComponent(accountId)}/logout`, json({})),
+  loginAccount: (accountId: string, options: LoginOptions, key: string) => request<LoginChallenge>(`/accounts/${encodeURIComponent(accountId)}/login`, { ...json(options), headers: { 'Content-Type': 'application/json', 'Idempotency-Key': key } }),
+  logoutAccount: (accountId: string, key: string) => request<LoginChallenge>(`/accounts/${encodeURIComponent(accountId)}/logout`, { ...json({}), headers: { 'Content-Type': 'application/json', 'Idempotency-Key': key } }),
+  provision: (accountId: string) => request<{ created: boolean; accountId: string; message: string }>(`/accounts/${encodeURIComponent(accountId)}/provision`, json({ confirmIsolated: true })),
+  operation: (accountId: string, operationId: string) => request<AccountOperation>(`/accounts/${encodeURIComponent(accountId)}/operations/${encodeURIComponent(operationId)}`),
+  cancelOperation: (accountId: string, operationId: string) => request<unknown>(`/accounts/${encodeURIComponent(accountId)}/operations/${encodeURIComponent(operationId)}/cancel`, json({})),
+  compatibility: () => request<CompatibilityReport>('/system/compatibility'),
   sync: (accountId: string) => request<{ synced: boolean; message: string }>(`/accounts/${encodeURIComponent(accountId)}/sync`, json({}), 60_000),
   system: () => request<SystemInfo>('/system'),
   events: (after?: string) => new EventSource(`${prefix}/events${params({ after })}`, { withCredentials: true }),

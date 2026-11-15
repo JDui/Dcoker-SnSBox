@@ -5,7 +5,7 @@
 ## 实际实现
 
 - React + TypeScript + Vite 静态前端；依赖精确固定并提交 npm 锁文件。Tailwind CSS 提供样式基础，按钮沿用 shadcn/ui 组合模式，Radix 负责弹窗焦点、退出与菜单键盘操作，Lucide 提供图标，TanStack Query / Virtual 处理服务端状态、分页和长列表。
-- 桌面导航栏、会话列表、消息区；手机列表与会话分层返回。浅色、深色、跟随系统与 reduced-motion。主题和发送快捷键可保存，正文和草稿不写浏览器本地存储。
+- 桌面导航栏、会话列表、消息区；手机列表与会话分层返回。浅色、深色、跟随系统与 reduced-motion。主题、重点色和发送快捷键可保存，正文和草稿不写浏览器本地存储。
 - 对齐 [HTTP API v1](API_CONTRACT.md)：管理员 Cookie 会话及内存 CSRF token；账号登录/退出/同步、会话分页、本地历史分页/搜索、清除本地未读、SSE 自动重连与查询刷新。管理员退出或失效时清理页面私有状态；前端不读取旧 config。
 - 平台、账号、会话三重身份隔离；同名微信/QQ 联系人不会合并。草稿与附件只存在当前页面内存，切换会话后保留，切换演示/真实模式或管理会话退出后清除。异步上传和发送捕获原会话身份，并用工作区代次防止退出后提交新的动作或把结果写进新会话。
 - 登录和发送按账号能力门控：unsupported / unavailable 禁用；unverified 明示“验证登录/验证发送”，发送前提示会实际提交。pending 登录请求不展示成登录完成。账号在线、事件连接、接口受理、对端送达不混用。
@@ -24,7 +24,7 @@ npm run dev
 
 本地入口默认 `http://127.0.0.1:18731`。默认 Vite 5173 在当前 Windows 主机被拒绝绑定，因此改用此端口；可通过 `SNSBOX_WEB_PORT` 覆盖。开发代理默认访问 `http://127.0.0.1:8080`，通过 `SNSBOX_API_TARGET` 可指定其他后端地址。生产执行 `npm run build` 后由 Rust 同源托管 `web/dist`，不需要运行时 Node 服务。
 
-`npm run check:interactions` 为两项聚焦 Playwright 检查，默认使用已安装的 Microsoft Edge，无额外浏览器下载；其它系统可在 `playwright.config.ts` 调整 channel。检查完全使用合成 API 响应，不读取或操作真实账号。
+`npm run check:interactions` 为当前阶段的聚焦 Playwright 检查（初版两项，本轮六项），默认使用已安装的 Microsoft Edge，无额外浏览器下载；其它系统可在 `playwright.config.ts` 调整 channel。检查完全使用合成 API 响应，不读取或操作真实账号。
 
 ## 已有证据
 
@@ -43,3 +43,60 @@ npm run dev
 - 下一项最大不确定性是固定版本上游的实际账号收发与媒体可用性；前端能力提示不会代替这些验收。
 
 组件参考：[Radix Dialog](https://www.radix-ui.com/primitives/docs/components/dialog)、[TanStack Query](https://tanstack.com/query/latest/docs/framework/react/overview)、[Vite](https://vite.dev/guide/)。
+
+
+## 第二轮：平台身份、会话状态与登录工作流
+
+### 已实现
+
+- 按用户最新要求，头像角标仅用图标：微信为双气泡，QQ 为企鹅；保留平台色、aria-label 与 title，不显示“微/QQ”角标文字。普通平台标签仍可显示平台名称。列表、聊天头、会话信息及搜索结果保留平台与账号身份，不能仅依赖颜色或同名联系人识别。
+- 列表和聊天头复用 Radix 菜单，提供置顶/取消置顶、SnSBox 本地免打扰、标为未读/已读。真实模式调用 `PATCH /api/v1/conversations/{id}`，仅在服务端回执后更新界面，保存失败保留原状态；演示模式只修改内存。
+- 列表按置顶、最近消息与 ID 排序。置顶后清空旧会话分页；遇到 409 `pagination_changed` 自动重新取得第一页，消息分页保持独立。用户在当前会话手动标为未读时不会立刻被自动已读覆盖；再次打开会话才清除该抑制，隐藏页面不自动标为已读。
+- 账号管理显示来源配置、平台登录及同步步骤。微信可选择自动、已有独立设备或二维码登录；可确认后准备独立 managed 账号，不接受路径输入、不导入旧资料。上游服务地址与凭据仍在部署端配置。
+- 微信与 QQ 复用登录/退出任务接口：命令附带幂等键，已登记任务按账号与任务 ID 每 2 秒只读查询至终态；关闭弹窗停止轮询，重新打开查询原任务。扫码、等待手机确认、过期、取消、失败、uncertain 均保留真实含义，uncertain 即使伴随 succeeded phase 也只显示“需要核对结果”，不显示成功。
+- 二维码只接受当前账号/任务对应的同源授权 PNG 路由，校验归属、过期和二维码代次；不接受外部地址、data URL 或其他账号的图片。到期立即隐藏，刷新任务不重新发起登录。QQ 来源不提供取消扫码按钮，明确说明关闭面板不会取消登录，应等待二维码过期。
+- API 新记录统一使用 RFC3339。前端兼容旧任务快照中的 Unix 秒数值/数字字符串；针对真实上游 `attempt.expires_at(): u32` 的秒时间戳验证到期，不仅使用自定义 ISO 夹具。
+- 当前标签页的 `sessionStorage` 只保存 `{accountId, platform, operationId}`，最多 32 项，用于页面刷新后恢复查询；不保存二维码、凭据、任务消息或聊天内容。管理退出/401 清理引用，完成/失败任务移除引用，uncertain 保留至用户核对。限制浏览器存储时退化为当前页面内存；没有返回任务 ID 的超时不能自动恢复，先核对上游且不自动重提。
+- 旧资料预检调用只读 `GET /api/v1/system/compatibility`，展示目录和库文件数量、来源不可访问/未配置状态及独立一致性副本要求。文件数量不是消息数量，识别布局不表示已解密或可复用令牌。
+
+### 本轮必要验证
+
+`npm run build` 通过；六项聚焦 Playwright 检查通过，全部使用合成内容：
+
+1. 原中文输入/草稿隔离检查。
+2. 原 UTF-8 上限、不安全外链及不确定发送不重试检查。
+3. 平台角标、服务端状态回执形状、失败保留、刷新后状态重取、手动未读抑制及置顶分页 409 恢复。此处状态响应由合成服务夹具提供，真实 SQLite 持久化由后端/集成记录证明。
+4. 独立账号初始化确认、两个账号任务隔离、标签页刷新只恢复查询、关闭弹窗/终态停止轮询、实际 Unix 秒结构的二维码期限、uncertain 不显示成功、管理退出清理任务引用、只读兼容预检。二维码图片是不可登录的一像素合成 PNG，不含真实扫码秘密。
+5. 下方 RC 规范的布局、动效、键盘及触摸检查。
+6. 中性基底、重点色切换/刷新持久化、纯图标角标及平台/状态颜色隔离；四种预设在浅深主题的主按钮、hover 与选中文案/底色配对均至少 4.5:1。
+
+## RC UI Style 2.0 对齐
+
+用户指定标准：[rc-ui-style/SKILL.md](https://github.com/JDui/RC-UI-Style-Skill/blob/aa8ed8e052c7d105ff531ab968e248ec4b7f286d/skills/rc-ui-style/SKILL.md)。已阅读其 content-style、visual-system、components、motion、motion-v2、acceptance、kiseki-effects、effects-recipes 和 2.0 参考图；保留现有聊天架构与浅深主题，不整体搬入演示资产。
+
+| 选择 | 实际实现与降级 |
+| --- | --- |
+| 形态与强度 | 高频聊天与账号设置，`restrained`；无持续装饰背景、视差、追光、轮播、Bento 或环境循环。这些效果不帮助读取消息或输入，不为凑效果加入。 |
+| 材质 | 正文、列表及输入采用中性灰白/灰暗 solid；仅弹窗/菜单采用约 94% 面板底色和 14px blur。遮罩 `#11182750` 与主要阴影均改为中性灰黑。无 backdrop-filter 支持时默认实色，“减少透明效果”和系统减少透明偏好均回到实色。 |
+| 圆角 | 控件约 8–9px，卡片 12–14px，主弹窗 20px；状态角标可用胶囊，不扩散到所有按钮。 |
+| 反馈 | 按钮颜色/描边约 140ms，按下轻亮度反馈；筛选底板 220ms，实际测量选中按钮的宽度、位置，监听 resize 和字体就绪。 |
+| 浮层 | 进入 240ms、6px 短位移；退出 160ms、4px 位移。Radix 保留焦点约束与退出；受控弹窗额外记录并恢复调用入口，关闭不依赖动画结果确定业务状态。 |
+| 减少动效 | `prefers-reduced-motion` 运行中生效，直接移除 animation/transition，不以极短空间动画代替。隐藏页面暂停非必要旋转/占位循环，终态不保留忙碌动画。 |
+| 可读性 | 正文约 14px、辅助说明以 11–12px 为主；基底、文字、边框和气泡保持中性；重点色提供蓝、青、紫、玫瑰预设并保存于浏览器，仅控制操作、选中和焦点。平台色与 success/warning/danger 独立。浅色 warning/soft 5.00:1、danger/soft 4.82:1、muted/chat-bg 4.73:1；这些为实际 token 计算，不代表全界面对比度已逐项量测。 |
+| 文案与媒体 | 标题、按钮、空状态直述模块、动作、条件与结果；已移除英文口号和装饰句。图片、视频封面及头像不随深色主题滤暗。 |
+| 触控与关闭 | 手机主操作、菜单、工具按钮至少 44px 命中；账号弹窗固定标题/关闭入口，内容单独滚动，查看下方内容仍能关闭。 |
+
+### 运行证据与交接
+
+- 视口：1440×1000 桌面浅/深色、1000×850 紧凑桌面、390×844 深色触摸模拟；DPR 1，Microsoft Edge 157 headless。真实 iPad/WebKit 仍未验证。
+- 约 0.2s 内连续切换 5 次平台筛选，最终平台和列表一致；筛选底板在切换及 resize 后与真实按钮对齐误差小于 1px。未重播整页入场或延迟展示内容。
+- 键盘 Enter 打开菜单、方向键移动、Escape 关闭并回到入口；设置弹窗 Tab 保持在内部，关闭返回设置入口。自动检查覆盖手机 Escape 关闭菜单后聊天保留，再通过明确返回按钮回到列表。已撤销非必要的全局 Escape 导航/清搜索行为。主线程原生 CUA 最终复验确认菜单关闭、聊天保留与焦点返回，未恢复该全局分支。
+- 连续打开/关闭/重新打开弹窗后仍可交互；运行中切换 reduced-motion 后计算样式为 `animation: none`、`transition-duration: 0s`。实色选项下计算 `backdrop-filter: none`。
+- 独立触摸上下文执行菜单取消置顶、返回、切换深色与 QQ 筛选；菜单命中区实测 44×44px，发送按钮高度 44px，无文档横向溢出。
+- rAF 原始数据见 `web/test-results/rc-ui-motion-metrics.json`：24 段采样，中位约 8.3ms、P95 约 8.4ms、最大约 8–9ms。仅表示当前 headless 环境在筛选切换后的短采样，不承诺真实屏幕/NAS/iPad 帧率；后台恢复性能与全路径长时间性能未测。
+- 自动检查包括根界面 CSS 200% 缩放下弹窗可访问；不把该模拟等同于真实浏览器 200% 缩放验收。实际浏览器放大与所有长文本/语言组合保持待验证。
+- 新截图均为合成账号和内容，位于忽略提交的 `web/test-results/`：`rc-desktop-light.png`、`rc-desktop-dark.png`、`rc-mobile-dark-touch.png`、`rc-settings-dark-solid.png`、`rc-accent-light-violet.png`、`rc-accent-dark-rose.png`、`conversation-local-state-desktop.png`、`conversation-local-state-mobile.png`、`account-tasks-desktop-synthetic.png`、`account-tasks-mobile-synthetic.png`。
+
+最终视觉以最新 `rc-*` 截图为准；账号任务截图用于合成任务行为证据。最后的中性遮罩/阴影调整后，仅复验受影响的两项 RC 主题与交互检查，未扩大测试范围。
+
+实现线程提供原始截图、测试脚本、计算样式与帧样本；独立评分由主线程按 skill 的 acceptance.md 完成，未将作者自查当作独立评分。真实平台通信、实际资料副本导入/令牌复用、真机触摸输入和后台恢复仍属于待验收项。

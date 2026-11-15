@@ -64,12 +64,12 @@ export function Composer({ account, conversation, draft, mode, busy, blocked, en
         setFileError(''); onFile(file, kind)
       }} />
       {attachment && <div className="draft-attachment">{attachment.preview && attachment.kind !== 'video' ? <img src={attachment.preview} alt="待发送附件" /> : <File size={25} />}<span><strong>{attachment.file.name}</strong><small>{formatBytes(attachment.file.size)} · 附件将单独发送，文字草稿保留</small></span><IconButton label="移除附件" disabled={busy} onClick={() => onRemoveFile(attachment.id)}><X size={16} /></IconButton></div>}
-      <textarea ref={inputRef} aria-label={`向${conversation.title}发送消息`} placeholder={attachment ? '附件将单独发送；你的文字草稿会保留' : mode === 'demo' ? '写一条演示消息，感受一下…' : available ? `发送给${conversation.title}…` : '连接账号后，开始对话…'} value={draft.text} onChange={event => onChange(event.target.value)} onCompositionStart={() => { composing.current = true }} onCompositionEnd={() => { composing.current = false; compositionEnded.current = Date.now() }} onKeyDown={keyDown} disabled={!available || !!attachment} rows={2} maxLength={20_000} />
+      <textarea ref={inputRef} aria-label={`向${conversation.title}发送消息`} placeholder={attachment ? '附件将单独发送；你的文字草稿会保留' : mode === 'demo' ? '输入演示消息…' : available ? `发送给${conversation.title}…` : '账号在线后可发送消息'} value={draft.text} onChange={event => onChange(event.target.value)} onCompositionStart={() => { composing.current = true }} onCompositionEnd={() => { composing.current = false; compositionEnded.current = Date.now() }} onKeyDown={keyDown} disabled={!available || !!attachment} rows={2} maxLength={20_000} />
       {(fileError || textTooLong) && <p className="inline-error" role="alert">{fileError || `文字超过 16 KB 上限（当前 ${(textBytes / 1024).toFixed(1)} KB），请分段发送。中文按 UTF-8 字节计算。`}</p>}
       <div className="composer-bottom"><Menu label="发送快捷键" trigger={<span className="shortcut-trigger">{enterSends ? 'Enter 发送，Shift + Enter 换行' : 'Enter 换行，点击按钮发送'}<ChevronDown size={12} /></span>}>
         <MenuItem onSelect={() => onEnterSendsChange(true)}>{enterSends ? '✓ ' : ''}Enter 发送</MenuItem><MenuItem onSelect={() => onEnterSendsChange(false)}>{!enterSends ? '✓ ' : ''}Enter 换行</MenuItem>
       </Menu><Button className="send-button" onClick={onSend} disabled={!sendable} aria-label={mode === 'demo' ? '发送演示消息' : unverified ? '验证发送' : '发送消息'}>{busy ? <LoaderCircle size={17} className="spinning" /> : <ArrowUp size={18} />}{mode === 'demo' ? '演示发送' : unverified ? '验证发送' : '发送'}</Button></div>
     </div>
-    <p className="composer-footnote">{mode === 'demo' ? '演示消息仅留在当前页面，不会发送至任何平台' : 'SnSBox 本地历史 · 平台身份始终独立'}</p>
+    <p className="composer-footnote">{mode === 'demo' ? '演示消息仅留在当前页面，不会发送至任何平台' : 'SnSBox 本地历史 · 账号与会话独立'}</p>
   </section>
 }

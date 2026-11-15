@@ -1,4 +1,4 @@
-import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from 'react'
+import { forwardRef, useLayoutEffect, useRef, type ButtonHTMLAttributes, type ReactNode } from 'react'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import * as Dropdown from '@radix-ui/react-dropdown-menu'
 import * as TooltipPrimitive from '@radix-ui/react-tooltip'
@@ -33,14 +33,22 @@ export const TooltipProvider = TooltipPrimitive.Provider
 export function Modal({ open, onOpenChange, title, description, children, className }: {
   open: boolean; onOpenChange: (open: boolean) => void; title: string; description: string; children: ReactNode; className?: string
 }) {
+  const returnFocus = useRef<HTMLElement | null>(null)
+  useLayoutEffect(() => { if (open && document.activeElement instanceof HTMLElement) returnFocus.current = document.activeElement }, [open])
   return <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay className="modal-overlay" />
-      <DialogPrimitive.Content className={cn('modal', className)}>
+      <DialogPrimitive.Content className={cn('modal', className)} onCloseAutoFocus={event => {
+        event.preventDefault()
+        const original = returnFocus.current
+        const usable = original?.isConnected && original.getClientRects().length && !(original instanceof HTMLButtonElement && original.disabled)
+        const fallback = original?.closest('[role="dialog"]')?.querySelector<HTMLElement>('button:not(:disabled), input:not(:disabled), textarea:not(:disabled)')
+        ;(usable ? original : fallback)?.focus({ preventScroll: true })
+      }}>
         <div className="modal-heading"><div><DialogPrimitive.Title>{title}</DialogPrimitive.Title><DialogPrimitive.Description>{description}</DialogPrimitive.Description></div>
           <DialogPrimitive.Close asChild><Button variant="ghost" size="icon" aria-label="关闭"><X size={19} /></Button></DialogPrimitive.Close>
         </div>
-        {children}
+        <div className="modal-body">{children}</div>
       </DialogPrimitive.Content>
     </DialogPrimitive.Portal>
   </DialogPrimitive.Root>

@@ -85,7 +85,18 @@ export interface Message {
 }
 
 export interface Page<T> { items: T[]; nextCursor?: string | null }
-export interface LoginChallenge { state: 'pending' | 'blocked' | 'accepted'; message?: string; qrCode?: string; loginUrl?: string }
+export interface LoginChallenge { state: 'pending' | 'blocked' | 'accepted' | 'uncertain'; message?: string; qrCode?: string | null; loginUrl?: string | null; operationId?: string | null; phase?: string; qrGeneration?: number | null }
+export interface LoginOptions { strategy?: 'auto' | 'saved-device' | 'qr'; allowQr?: boolean }
+export type AccountAction = 'login' | 'logout' | 'sync' | 'provision'
+export interface AccountOperation {
+  id: string; accountId: string; kind: 'login' | 'logout'; state: LoginChallenge['state']; phase: string
+  message?: string; qrCode?: string | null; expiresAt?: string | number | null; qrGeneration?: number | null; createdAt?: string
+}
+export interface CompatibilityReport {
+  mode: string; nextStep: string; message?: string; configured?: boolean; readOnly?: boolean; scanTruncated?: boolean
+  wechat?: { profileRoots: number; sessionDatabases: number; contactDatabases: number; messageDatabases: number; layout: string; decryption: string; tokenReuse: string }
+  qq?: { profileRoots: number; layout: string; tokenCompatibility: string }
+}
 export interface Session { authenticated: boolean; csrfToken: string }
 export interface SystemInfo { version: string; dataPolicy: string; legacyConfig?: { configured: boolean; readOnly: boolean; message?: string; entries: { path: string; present: boolean; purpose: string }[] } }
 export interface DraftAttachment { id: string; file: File; preview?: string; kind: 'image' | 'video' | 'file' | 'sticker' }
