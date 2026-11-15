@@ -1,0 +1,17 @@
+.git
+target
+node_modules
+web/node_modules
+data
+private
+secrets
+config
+artifacts
+.references
+compose.upstreams.yaml
+*.log
+*.sqlite*
+*.db
+.env
+.env.*
+!deploy/*.example

@@ -45,15 +45,14 @@ pub async fn event_tx(
 }
 pub async fn conversation(db: &SqlitePool, body: &Value) -> Result<()> {
     let mut tx = db.begin().await?;
-    let existing: Option<String> = sqlx::query_scalar("SELECT title FROM conversations WHERE id=?")
-        .bind(body["id"].as_str())
-        .fetch_optional(&mut *tx)
-        .await?;
-    if existing.as_deref() == body["title"].as_str() {
+    // Start with a write, not a read-then-write deferred transaction: simultaneous
+    // platform workers must not upgrade a stale WAL read snapshot into a writer.
+    let changed=sqlx::query("INSERT INTO conversations(id,account_id,upstream_id,kind,title,body) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title, body=json_set(conversations.body,'$.title',json_extract(excluded.body,'$.title')) WHERE conversations.title<>excluded.title")
+        .bind(body["id"].as_str()).bind(body["accountId"].as_str()).bind(body["upstreamId"].as_str()).bind(body["kind"].as_str()).bind(body["title"].as_str()).bind(body.to_string()).execute(&mut *tx).await?.rows_affected();
+    if changed == 0 {
+        tx.commit().await?;
         return Ok(());
     }
-    sqlx::query("INSERT INTO conversations(id,account_id,upstream_id,kind,title,body) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title, body=json_set(conversations.body,'$.title',json_extract(excluded.body,'$.title'))")
-        .bind(body["id"].as_str()).bind(body["accountId"].as_str()).bind(body["upstreamId"].as_str()).bind(body["kind"].as_str()).bind(body["title"].as_str()).bind(body.to_string()).execute(&mut *tx).await?;
     event_tx(
         &mut tx,
         "conversation",

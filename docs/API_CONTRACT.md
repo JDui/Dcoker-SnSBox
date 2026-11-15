@@ -33,7 +33,7 @@
 }
 ```
 
-platform: `wechat|qq`；status: `unconfigured|connecting|online|offline|error`。capabilities 固定键 `login,logout,text,image,video,file,sticker,miniApp,history,realtime,mail`，每项 `{status,reason}`；status: `supported|unsupported|unverified|unavailable`。unverified 可发起人工验证；unsupported/unavailable 应禁用。`online` 仅表示本次上游状态响应可用，不等于发送或真实账号验收。QQ mailUrl 固定 `https://mail.qq.com/`，独立网页入口，无邮箱授权联动。
+platform: `wechat|qq`；status: `unconfigured|connecting|online|offline|error`。capabilities 固定键 `login,logout,text,image,video,file,sticker,miniApp,history,realtime,mail`，每项 `{status,reason}`；status: `supported|unsupported|unverified|unavailable`。unverified 可发起人工验证；unsupported/unavailable 应禁用。`online` 表示上游报告有效登录/连接状态，不等于发送或真实账号验收。QQ mailUrl 固定 `https://mail.qq.com/`，独立网页入口，无邮箱授权联动。
 
 ## 会话、历史和搜索
 
@@ -56,13 +56,13 @@ platform: `wechat|qq`；status: `unconfigured|connecting|online|offline|error`�
 }
 ```
 
-segment：`text {text}`；`image|video|file|sticker|audio {mediaId?,url?,name?,mimeType?,unavailableReason?}`；`link|miniApp {title?,url?,text?}`；`unknown {text}`。只渲染文字和安全 http(s) 链接，不插入上游 HTML/XML。`url` 只在已授权本地媒体时是 `/api/v1/media/{id}`；暂未下载的上游媒体返回 unavailableReason。小程序卡片保留可读提示；没有安全 URL 时不能启动。收到无法映射的类型保留 unknown 提示。
+segment：`text {text}`；`image|video|file|sticker|audio {mediaId?,url?,name?,mimeType?,unavailableReason?}`；`link|miniApp {title?,url?,text?}`；`unknown {text}`。只渲染文字和安全 http(s) 链接，不插入上游 HTML/XML。媒体 `url` 始终是 `/api/v1/media/{id}`：首次读取可能从已配置上游安全缓存，也可能返回 422（上游未下载、过期、不支持、超过上限）；前端需提供加载失败提示。未提供地址的媒体返回 unavailableReason。小程序卡片保留可读提示；没有安全 URL 时不能启动。收到无法映射的类型保留 unknown 提示。来源缺失的时间/发送者/方向可能是 null，UI 使用未知提示，不假造时间与身份。
 
 ## 发送与附件
 
 - `POST /api/v1/conversations/{conversationId}/messages`，必须带 `Idempotency-Key`（建议每次用户发送生成一个 UUID，同一请求重试复用），JSON `{ "segments": [...] }`。返回 HTTP 202 消息对象。仅允许 text 或单个已上传的 image/video/file/sticker 段。链接可作为 text 发送；任意 URL/本地文件路径不允许用作媒体发送来源。
 - `POST /api/v1/media?accountId=...&name=photo.jpg`：原始二进制 body，Content-Type 设为媒体 MIME，最大 32 MiB，返回 `{ "id": "...", "url": "/api/v1/media/...", "name": "...", "mimeType": "...", "size": 123 }`。Cookie+CSRF 鉴权；媒体归属账号必须匹配发送会话。
-- `GET /api/v1/media/{id}`：鉴权后读取 SnSBox 自有附件；不能任意读取官方资料目录。非图片/视频/音频以下载方式返回，所有响应 nosniff。
+- `GET /api/v1/media/{id}`：鉴权后读取 SnSBox 自有附件或账号范围内的上游已知附件并缓存；支持单 Range。微信只能读取上游 available 缓存，不在 GET 中发起远端下载任务；QQ 限制 CDN 域、公网解析和重定向。不能任意读取官方资料目录或任意 URL。非图片/视频/音频以下载方式返回，所有响应 nosniff。
 
 发送状态 `queued|submitting|accepted|failed|uncertain`；收到消息 `received`。accepted 表示上游接受，不是送达/已读。网络超时或崩溃导致的 uncertain 不自动重发。相同幂等键不同请求返回 409；重放原请求返回原持久化消息对象（不会重复提交）。查询消息列表可看到状态变化。客户端不得将 HTTP 202 当成发送成功。
 

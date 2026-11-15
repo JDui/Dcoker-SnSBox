@@ -1,0 +1,25 @@
+services:
+  snsbox:
+    image: snsbox:0.1.0
+    platform: linux/amd64
+    build:
+      context: .
+    ports:
+      - "${SNSBOX_BIND_ADDRESS:-127.0.0.1}:${SNSBOX_PORT:-8080}:8080"
+    environment:
+      SNSBOX_PUBLIC_ORIGIN: "${SNSBOX_PUBLIC_ORIGIN:-http://localhost:8080}"
+      SNSBOX_MEDIA_QUOTA_BYTES: "${SNSBOX_MEDIA_QUOTA_BYTES:-2147483648}"
+    volumes:
+      - snsbox-data:/data
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 20s
+
+volumes:
+  snsbox-data:

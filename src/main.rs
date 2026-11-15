@@ -91,6 +91,16 @@ type ApiResult<T> = Result<T, ApiError>;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    if std::env::args().nth(1).as_deref() == Some("--healthcheck") {
+        reqwest::Client::builder()
+            .timeout(Duration::from_secs(3))
+            .build()?
+            .get("http://127.0.0.1:8080/health")
+            .send()
+            .await?
+            .error_for_status()?;
+        return Ok(());
+    }
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()

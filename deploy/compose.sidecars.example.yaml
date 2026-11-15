@@ -1,0 +1,42 @@
+# Explicit isolated upstream deployment, not used by default compose.yaml.
+# Build the two fixed upstream images using UPSTREAM_SETUP.md before using this file.
+services:
+  snsbox:
+    environment:
+      SNSBOX_ACCOUNTS_FILE: /run/config/accounts.json
+    volumes:
+      - ./private/accounts.json:/run/config/accounts.json:ro
+      - ./private/wechat-api-token:/run/secrets/wechat-api-token:ro
+      - ./private/qq-api-token:/run/secrets/qq-api-token:ro
+  wechat-upstream:
+    image: snsbox-agent-wechat:ce5c0687
+    platform: linux/amd64
+    network_mode: service:snsbox
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      TMPDIR: /var/cache/agent-wechat
+    volumes:
+      - snsbox-wechat-native:/var/lib/agent-wechat
+      - snsbox-wechat-scratch:/var/cache/agent-wechat
+      - ./private/wechat-server.toml:/etc/agent-wechat/server/config.toml:ro
+      - ./private/wechat-api-token:/run/secrets/wechat-api-token:ro
+      # No old official config is mounted. Only add an independently prepared
+      # stopped-profile copy if you explicitly choose that upstream workflow.
+    restart: "no"
+  qq-upstream:
+    image: snsbox-lagrange:fe789c4a
+    platform: linux/amd64
+    network_mode: service:snsbox
+    volumes:
+      - snsbox-qq-native:/root
+      - ./private/qq-appsettings.json:/root/appsettings.json:ro
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: "no"
+volumes:
+  snsbox-wechat-native:
+  snsbox-wechat-scratch:
+  snsbox-qq-native:

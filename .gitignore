@@ -4,6 +4,8 @@
 /config/
 /data/
 /secrets/
+/private/
+/compose.upstreams.yaml
 /.env
 *.log
 *.sqlite*

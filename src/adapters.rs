@@ -162,6 +162,11 @@ pub fn safe_link(s: &str) -> bool {
 pub async fn sync(app: &App, a: &AccountConfig) -> Result<()> {
     let guard = app.sync_locks.get(&a.id).unwrap().lock().await;
     let result = sync_inner(app, a).await;
+    if let Err(error) = &result {
+        if let Some(sqlx::Error::Database(db)) = error.downcast_ref::<sqlx::Error>() {
+            tracing::warn!(account=%a.id,code=?db.code(),message=%db.message(),"SQLite synchronization failure");
+        }
+    }
     drop(guard);
     let (status, message) = match &result {
         Ok(()) => (

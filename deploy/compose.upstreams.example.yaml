@@ -1,0 +1,14 @@
+# Copy to the repository root as compose.upstreams.yaml and edit private paths.
+# Compose resolves relative bind paths against the first (-f compose.yaml) file.
+services:
+  snsbox:
+    environment:
+      SNSBOX_ACCOUNTS_FILE: /run/config/accounts.json
+      SNSBOX_LEGACY_CONFIG: /legacy-config
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./private/accounts.json:/run/config/accounts.json:ro
+      - ./private/wechat-api-token:/run/secrets/wechat-api-token:ro
+      - ./private/qq-api-token:/run/secrets/qq-api-token:ro
+      - ${SNSBOX_LEGACY_CONFIG_HOST:?set an existing legacy config path}:/legacy-config:ro

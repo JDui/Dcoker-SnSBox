@@ -1,0 +1,17 @@
+[
+  {
+    "id": "wechat-main",
+    "platform": "wechat",
+    "displayName": "微信",
+    "baseUrl": "http://host.docker.internal:6174",
+    "upstreamAccountId": "REPLACE_WITH_AGENT_WECHAT_ACCOUNT_ID",
+    "tokenFile": "/run/secrets/wechat-api-token"
+  },
+  {
+    "id": "qq-main",
+    "platform": "qq",
+    "displayName": "QQ",
+    "baseUrl": "http://host.docker.internal:3000",
+    "tokenFile": "/run/secrets/qq-api-token"
+  }
+]
