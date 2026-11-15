@@ -1,0 +1,14 @@
+# Copy to compose.history.yaml only after preparing independent source material.
+# Never use the running WS config as the history-snapshots directory.
+services:
+  snsbox:
+    environment:
+      SNSBOX_HISTORY_SOURCES_FILE: /run/config/history-sources.json
+      TMPDIR: /var/cache/snsbox-history
+    volumes:
+      - ./private/history-sources.json:/run/config/history-sources.json:ro
+      - ./private/history-snapshots:/history-snapshots:ro
+      - ./private/history-wechat-keys.json:/run/secrets/history-wechat-keys.json:ro
+      - snsbox-history-scratch:/var/cache/snsbox-history
+volumes:
+  snsbox-history-scratch:

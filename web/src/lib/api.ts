@@ -1,4 +1,4 @@
-import type { Account, AccountOperation, CompatibilityReport, Conversation, ConversationPatch, LoginChallenge, LoginOptions, Message, Page, Segment, Session, SystemInfo } from './types'
+import type { Account, AccountOperation, CompatibilityReport, Conversation, ConversationPatch, HistoryConversation, HistoryMessage, HistorySource, LoginChallenge, LoginOptions, Message, Page, Segment, Session, SystemInfo } from './types'
 
 const prefix = '/api/v1'
 let csrfToken: string | undefined
@@ -59,6 +59,11 @@ export const api = {
   operation: (accountId: string, operationId: string) => request<AccountOperation>(`/accounts/${encodeURIComponent(accountId)}/operations/${encodeURIComponent(operationId)}`),
   cancelOperation: (accountId: string, operationId: string) => request<unknown>(`/accounts/${encodeURIComponent(accountId)}/operations/${encodeURIComponent(operationId)}/cancel`, json({})),
   compatibility: () => request<CompatibilityReport>('/system/compatibility'),
+  historySources: () => request<Page<HistorySource>>('/history/sources'),
+  historyRefresh: (source: string) => request<HistorySource>(`/history/sources/${encodeURIComponent(source)}/refresh`, json({})),
+  historyConversations: (source: string, cursor?: string | null) => request<Page<HistoryConversation>>(`/history/sources/${encodeURIComponent(source)}/conversations${params({ cursor, limit: 50 })}`),
+  historyMessages: (source: string, conversation: string, cursor?: string | null) => request<Page<HistoryMessage>>(`/history/sources/${encodeURIComponent(source)}/conversations/${encodeURIComponent(conversation)}/messages${params({ cursor, limit: 50 })}`),
+  historySearch: (source: string, query: string, cursor?: string | null) => request<Page<HistoryMessage>>(`/history/sources/${encodeURIComponent(source)}/messages${params({ query, cursor, limit: 50 })}`),
   sync: (accountId: string) => request<{ synced: boolean; message: string }>(`/accounts/${encodeURIComponent(accountId)}/sync`, json({}), 60_000),
   system: () => request<SystemInfo>('/system'),
   events: (after?: string) => new EventSource(`${prefix}/events${params({ after })}`, { withCredentials: true }),

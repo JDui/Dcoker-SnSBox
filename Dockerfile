@@ -18,7 +18,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry --mount=type=cache,targe
 
 FROM ${RUNTIME_IMAGE} AS runtime-base
 RUN groupadd --gid 10001 snsbox && useradd --uid 10001 --gid snsbox --no-create-home --shell /usr/sbin/nologin snsbox \
-    && mkdir -p /app/web /data && chown -R snsbox:snsbox /app /data
+    && mkdir -p /app/web /data /var/cache/snsbox-history && chown -R snsbox:snsbox /app /data /var/cache/snsbox-history
 ENV SNSBOX_LISTEN=0.0.0.0:8080 SNSBOX_DATA_DIR=/data SNSBOX_WEB_DIR=/app/web SNSBOX_PUBLIC_ORIGIN=http://localhost:8080
 WORKDIR /app
 USER 10001:10001

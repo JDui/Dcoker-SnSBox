@@ -536,6 +536,7 @@ pub fn start(app: Arc<App>) {
         let app = app.clone();
         tokio::spawn(async move {
             let mut count = 0u64;
+            let mut retry_sync = false;
             if a.platform == "qq" {
                 let state = app.clone();
                 let account = a.clone();
@@ -556,8 +557,11 @@ pub fn start(app: Arc<App>) {
                 });
             }
             loop {
-                if count % 12 == 0 && sync(&app, &a).await.is_err() {
-                    tracing::warn!(account=%a.id,"upstream sync failed (check connection/configuration)");
+                if count % 12 == 0 || retry_sync {
+                    retry_sync = sync(&app, &a).await.is_err();
+                    if retry_sync {
+                        tracing::warn!(account=%a.id,"upstream sync failed (check connection/configuration)");
+                    }
                 }
                 if a.platform == "wechat" && wx_events(&app, &a).await.is_err() {
                     tracing::warn!(account=%a.id,"WeChat event sync failed; cursor retained");

@@ -26,6 +26,7 @@
 | [接入方案研究](docs/INTEGRATION_RESEARCH.md) | 候选上游、公开证据、限制及待验证项 |
 | [执行记录](docs/EXECUTION_STATUS.md) | MVP 能力、线程分工、阶段提交和验证证据 |
 | [config 兼容](docs/CONFIG_COMPATIBILITY.md) | WS 目录保全、只读共享和单写入方边界 |
+| [既有历史读取](deploy/HISTORY_SETUP.md) | 独立来源、数据库密钥、只读索引、分页与搜索 |
 | [API 合约](docs/API_CONTRACT.md) | 前后端实现的统一接口 |
 | [部署说明](deploy/README.md) | AMD64 容器、上游配置、只读资料挂载及数据卷 |
 | [验收路线](docs/ACCEPTANCE.md) | 工程、真实账号与 WS 资料分别验收 |

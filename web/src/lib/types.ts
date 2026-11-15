@@ -102,3 +102,11 @@ export interface SystemInfo { version: string; dataPolicy: string; legacyConfig?
 export interface DraftAttachment { id: string; file: File; preview?: string; kind: 'image' | 'video' | 'file' | 'sticker' }
 export interface Draft { text: string; attachments: DraftAttachment[] }
 export type Mode = 'live' | 'demo'
+
+export interface HistorySource {
+  id: string; platform: Platform; displayName: string; kind: 'legacy-readonly'; status: 'not_loaded' | 'refreshing' | 'ready' | 'partial' | 'keys_required' | 'snapshot_required' | 'unsupported' | 'error'
+  reason: string; readOnly: true; sendAllowed: false; capturedAt?: string | null; indexedAt?: string | null; consistency: 'operator-confirmed-copy' | 'unavailable'
+  generation?: string | null; conversationCount?: number | null; messageCount?: number | null; partial: boolean
+}
+export interface HistoryConversation extends Conversation { sourceId: string; readOnly: true }
+export interface HistoryMessage extends Message { sourceId: string; readOnly: true; conversationTitle?: string; conversationKind?: Conversation['kind'] }

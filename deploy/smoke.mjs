@@ -19,7 +19,7 @@ let sends = 0;
 let mediaReads = 0;
 let started = false;
 let loginPhase = 'awaiting_scan';
-let accountHttp = 200;
+let accountHttp = 503; // Simulate the sidecar becoming ready after SnSBox starts.
 let wxAuthenticated = true;
 let qqEvent;
 let qqOnline=true;
@@ -99,7 +99,15 @@ try {
   }
   await until(async () => (await request('/health')).ok, 'health');
   assert.equal((await request('/api/v1/accounts')).status, 401);
+  assert.equal((await request('/api/v1/history/sources')).status, 401);
   await signin();
+  const historySources = await (await request('/api/v1/history/sources')).json();
+  assert.equal(historySources.items.find(source => source.platform === 'wechat').status, 'snapshot_required');
+  assert.equal(historySources.items.find(source => source.platform === 'qq').status, 'unsupported');
+  assert.ok(historySources.items.every(source => source.readOnly && source.sendAllowed === false));
+  assert.equal((await request('/api/v1/history/sources/legacy-wechat/refresh', {method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':''},body:'{}'})).status,403);
+  await until(async () => observed.includes('GET /v1/accounts/wx'), 'initial unavailable sidecar probe');
+  accountHttp = 200;
   const list = await until(async () => { const p = await (await request('/api/v1/conversations')).json(); return p.items?.length >= 2 && p.items; }, 'both configured adapters');
   const wx = list.find(c => c.accountId === 'wx');
   const qq = list.find(c => c.accountId === 'qq');

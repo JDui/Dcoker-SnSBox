@@ -1,0 +1,66 @@
+import { useEffect, useState } from 'react'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ArrowDown, ArrowLeft, Archive, CircleHelp, Clock3, KeyRound, LoaderCircle, RefreshCw, Search, ShieldCheck } from 'lucide-react'
+import { api, ApiError } from '../lib/api'
+import type { Account, HistoryConversation, HistoryMessage, HistorySource, Mode } from '../lib/types'
+import { cn, formatTime } from '../lib/utils'
+import { Avatar, PlatformBadge } from './identity'
+import { ChatPanel } from './chat-panel'
+import { ConversationInfo } from './settings'
+import { Button, IconButton } from './ui'
+
+const statusLabel = (status: HistorySource['status']) => ({ not_loaded: '尚未读取', refreshing: '读取中', ready: '可读', partial: '部分可读', keys_required: '缺少密钥', snapshot_required: '缺少一致性副本', unsupported: '暂不支持', error: '读取失败' })[status]
+const demoSource: HistorySource = { id: 'demo-history', platform: 'wechat', displayName: '微信副本 · 合成示例', kind: 'legacy-readonly', status: 'partial', reason: '合成历史示例，仅用于界面预览；不读取真实资料。', readOnly: true, sendAllowed: false, capturedAt: '2026-11-15T00:00:00Z', indexedAt: '2026-11-15T01:00:00Z', consistency: 'operator-confirmed-copy', generation: 'demo-only', conversationCount: 1, messageCount: 2, partial: true }
+const demoConversation: HistoryConversation = { id: 'demo-history-conversation', sourceId: demoSource.id, accountId: `history:${demoSource.id}`, platform: 'wechat', title: '既有会话 · 合成示例', kind: 'direct', lastMessage: '这条消息来自合成历史夹具。', lastMessageAt: '2026-11-14T12:00:00Z', unreadCount: 0, readOnly: true }
+const demoHistory: HistoryMessage[] = [
+  { id: 'demo-legacy-1', sourceId: demoSource.id, conversationId: demoConversation.id, accountId: demoConversation.accountId, platform: 'wechat', direction: 'incoming', senderName: '示例联系人', timestamp: '2026-11-14T11:59:00Z', segments: [{ type: 'text', text: '这是一条合成的既有消息。来源、分页和搜索与在线会话分开。' }], status: 'received', readOnly: true },
+  { id: 'demo-legacy-2', sourceId: demoSource.id, conversationId: demoConversation.id, accountId: demoConversation.accountId, platform: 'wechat', direction: null, senderName: null, timestamp: '2026-11-14T12:00:00Z', segments: [{ type: 'unknown', text: '历史附件尚未展开，保留类型提示。' }], status: 'received', readOnly: true },
+]
+const formatDate = (value?: string | null) => value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString() : '未知'
+const dedupe = <T extends { id: string }>(items: T[]) => [...new Map(items.map(item => [item.id, item])).values()]
+
+export function HistoryWorkspace({ mode, onExit }: { mode: Mode; onExit: () => void }) {
+  const client = useQueryClient()
+  const [sourceId, setSourceId] = useState('')
+  const [selected, setSelected] = useState<HistoryConversation | null>(null)
+  const [search, setSearch] = useState('')
+  const [term, setTerm] = useState('')
+  const [info, setInfo] = useState(false)
+  const sourcesQuery = useQuery({ queryKey: ['live', 'history', 'sources'], queryFn: api.historySources, enabled: mode === 'live', retry: false, staleTime: 15_000, refetchInterval: query => query.state.data?.items.some(source => source.status === 'refreshing') ? 2000 : false })
+  const sources = mode === 'demo' ? [demoSource] : sourcesQuery.data?.items || []
+  const source = sources.find(value => value.id === sourceId) || sources[0]
+  const readable = !!source?.generation && ['ready', 'partial', 'refreshing'].includes(source.status)
+  const key = ['live', 'history', source?.id, source?.generation]
+  const conversations = useInfiniteQuery({ queryKey: [...key, 'conversations'], queryFn: ({ pageParam }) => api.historyConversations(source!.id, pageParam), initialPageParam: null as string | null, getNextPageParam: page => page.nextCursor || undefined, enabled: mode === 'live' && readable, retry: false })
+  const messages = useInfiniteQuery({ queryKey: [...key, 'messages', selected?.id], queryFn: ({ pageParam }) => api.historyMessages(source!.id, selected!.id, pageParam), initialPageParam: null as string | null, getNextPageParam: page => page.nextCursor || undefined, enabled: mode === 'live' && readable && !!selected, retry: false })
+  const results = useInfiniteQuery({ queryKey: [...key, 'search', term], queryFn: ({ pageParam }) => api.historySearch(source!.id, term, pageParam), initialPageParam: null as string | null, getNextPageParam: page => page.nextCursor || undefined, enabled: mode === 'live' && readable && !!term, retry: false })
+  const refresh = useMutation({ mutationFn: () => api.historyRefresh(source!.id), retry: false, onSuccess: () => client.invalidateQueries({ queryKey: ['live', 'history', 'sources'] }) })
+  const items = mode === 'demo' ? [demoConversation] : dedupe(conversations.data?.pages.flatMap(page => page.items) || []).filter(item => item.sourceId === source?.id)
+  const records = mode === 'demo' ? demoHistory : dedupe(messages.data?.pages.flatMap(page => page.items) || []).reverse().filter(item => item.sourceId === source?.id && item.conversationId === selected?.id)
+  const hits = mode === 'demo' ? demoHistory.filter(message => message.segments.some(segment => segment.type === 'text' && segment.text.includes(term))) : dedupe(results.data?.pages.flatMap(page => page.items) || []).filter(item => item.sourceId === source?.id)
+  const account: Account | undefined = source ? { id: `history:${source.id}`, platform: source.platform, displayName: source.displayName, status: 'offline', historyScope: `副本时间：${formatDate(source.capturedAt)}；仅当前读取器支持的本地历史，文字正文可搜索，附件与卡片仅保留类型提示。`, capabilities: { history: { status: readable ? 'supported' : 'unavailable', reason: source.reason }, text: { status: 'unsupported', reason: '既有历史为只读来源，不开放发送' }, image: { status: 'unsupported' }, video: { status: 'unsupported' }, file: { status: 'unsupported' }, sticker: { status: 'unsupported' } } } : undefined
+  useEffect(() => { const timer = window.setTimeout(() => setTerm(search.trim()), 200); return () => window.clearTimeout(timer) }, [search])
+  useEffect(() => { setSelected(null); setSearch(''); setTerm(''); setInfo(false) }, [source?.id, source?.generation])
+  useEffect(() => {
+    if ([conversations.error, messages.error, results.error].some(error => error instanceof ApiError && error.code === 'history_changed')) {
+      client.invalidateQueries({ queryKey: ['live', 'history', 'sources'] })
+      client.resetQueries({ queryKey: key })
+    }
+  }, [conversations.error, messages.error, results.error, client, source?.id, source?.generation])
+  const selectHit = (message: HistoryMessage) => setSelected(items.find(item => item.id === message.conversationId) || { id: message.conversationId, sourceId: message.sourceId, accountId: message.accountId, platform: message.platform, title: message.conversationTitle || '历史会话', kind: message.conversationKind || 'direct', unreadCount: 0, readOnly: true })
+  return <section className={cn('history-workspace', selected && 'history-has-active')} aria-label="既有历史">
+    <aside className="history-sidebar" aria-label="历史来源与会话">
+      <header className="history-heading"><div><Archive size={19} /><h1>既有历史</h1></div><IconButton label="返回在线会话" onClick={onExit}><ArrowLeft size={19} /></IconButton></header>
+      <div className="history-intro"><ShieldCheck size={15} /><span>只读资料副本 · 与在线会话分开</span></div>
+      {sourcesQuery.isPending && mode === 'live' && <p className="history-inline-state"><LoaderCircle size={16} className="spinning" />读取来源状态…</p>}
+      {sourcesQuery.error && <div className="history-source-error"><p>{sourcesQuery.error instanceof Error ? sourcesQuery.error.message : '来源状态不可用'}</p><Button variant="secondary" size="sm" onClick={() => sourcesQuery.refetch()}>重试读取状态</Button></div>}
+      <div className="history-sources" aria-label="选择历史来源">{sources.map(value => <button key={value.id} className={cn('history-source', source?.id === value.id && 'is-active')} type="button" onClick={() => { setSourceId(value.id); setSelected(null); setSearch(''); setTerm(''); setInfo(false) }} aria-pressed={source?.id === value.id}><PlatformBadge platform={value.platform} /><strong>{value.displayName}</strong><span>{statusLabel(value.status)}</span></button>)}</div>
+      {source && <div className="history-source-summary"><p>{source.reason}</p><div><span><Clock3 size={12} />副本时间</span><time>{formatDate(source.capturedAt)}</time></div>{source.indexedAt && <div><span>索引时间</span><time>{formatDate(source.indexedAt)}</time></div>}{source.messageCount != null && <div><span>当前索引</span><span>{source.conversationCount ?? '—'} 个会话 · {source.messageCount} 条消息</span></div>}<Button variant="secondary" size="sm" disabled={mode === 'demo' || source.platform === 'qq' || refresh.isPending || source.status === 'refreshing'} onClick={() => refresh.mutate()}>{source.status === 'refreshing' ? <LoaderCircle size={14} className="spinning" /> : <RefreshCw size={14} />}{source.status === 'refreshing' ? '正在读取副本' : readable ? '重新读取副本' : source.status === 'not_loaded' ? '读取来源' : '重新检查条件'}</Button>{refresh.error && <p className="inline-error" role="alert">{refresh.error instanceof Error ? refresh.error.message : '来源读取未完成'}</p>}</div>}
+      {readable && <><div className="search-field history-search"><Search size={16} /><input id="workspace-search" type="search" aria-label="搜索当前历史来源" placeholder="搜索当前来源的文字正文" value={search} onChange={event => setSearch(event.target.value)} /></div><div className="history-conversations">
+        {search.trim() ? <>{results.isFetching && !results.data && mode === 'live' && <p className="history-inline-state">搜索中…</p>}{results.error && <p className="inline-error">历史搜索失败，请修改查询或重新读取来源。</p>}{!hits.length && !results.isFetching && <p className="history-inline-state">无匹配记录，仅搜索当前索引文字正文。</p>}{hits.map(message => <button className="search-result" type="button" key={message.id} onClick={() => selectHit(message)}><div><PlatformBadge platform={message.platform} /><strong>{message.conversationTitle || items.find(item => item.id === message.conversationId)?.title || '历史会话'}</strong></div><p>{message.segments.map(segment => segment.type === 'text' ? segment.text : '[未展开消息]').join(' ')}</p><small>{message.senderName || '发送者未知'} · {formatTime(message.timestamp)}</small></button>)}{results.hasNextPage && <Button variant="ghost" className="load-more-list" onClick={() => results.fetchNextPage()} disabled={results.isFetchingNextPage}>更多搜索记录</Button>}</> : <>{items.map(conversation => <button className={cn('history-conversation', selected?.id === conversation.id && 'is-active')} key={conversation.id} type="button" onClick={() => setSelected(conversation)}><Avatar name={conversation.title} platform={conversation.platform} group={conversation.kind === 'group'} /><span><strong>{conversation.title}</strong><small>{conversation.lastMessage || '只读会话'}</small><time>{formatTime(conversation.lastMessageAt)}</time></span></button>)}{conversations.isPending && mode === 'live' && <p className="history-inline-state">读取会话…</p>}{conversations.error && <p className="inline-error">历史会话读取失败，请重试来源。</p>}{!items.length && !conversations.isPending && <p className="history-inline-state">该索引暂无会话。</p>}{conversations.hasNextPage && <Button variant="ghost" className="load-more-list" onClick={() => conversations.fetchNextPage()} disabled={conversations.isFetchingNextPage}><ArrowDown size={14} />更多历史会话</Button>}</>}
+      </div></>}
+    </aside>
+    <div className="history-content">{selected && source && account && readable ? <ChatPanel key={`${source.id}:${source.generation}:${selected.id}`} readOnly historyScope={`只读既有历史 · 副本时间：${formatDate(source.capturedAt)}${source.partial ? ' · 部分可读' : ''}`} account={account} conversation={selected} messages={records} localIds={new Set()} draft={{ text: '', attachments: [] }} mode={mode} busy={false} blocked enterSends={false} conversationBusy={false} loading={mode === 'live' && messages.isPending} error={messages.error instanceof Error ? messages.error.message : undefined} hasMore={mode === 'live' && !!messages.hasNextPage} loadingMore={messages.isFetchingNextPage} onConversationChange={() => {}} onBack={() => setSelected(null)} onInfo={() => setInfo(true)} onSearch={() => { setSelected(null); window.setTimeout(() => document.getElementById('workspace-search')?.focus(), 0) }} onLoadOlder={async () => { const count = records.length; const result = await messages.fetchNextPage(); if (result.isError) throw result.error; return dedupe(result.data?.pages.flatMap(page => page.items) || []).length > count }} onRetry={() => messages.refetch()} onDraftChange={() => {}} onSend={() => {}} onFile={() => {}} onRemoveFile={() => {}} onEnterSendsChange={() => {}} onCheck={() => {}} onDismiss={() => {}} /> : <div className="history-empty"><span className="history-empty-icon">{source?.status === 'keys_required' ? <KeyRound size={27} /> : <Archive size={27} />}</span><h2>{readable ? '选择历史会话' : source ? statusLabel(source.status) : '历史来源'}</h2><p>{readable ? '只读查看当前来源；搜索范围是已建立的文字索引。' : source?.reason || '配置独立资料副本后，在这里查看既有聊天记录。'}</p><div className="history-boundary"><CircleHelp size={16} /><span>不连接或写入活跃 WS，不发送消息，不同步平台已读。未提供一致性副本和授权密钥时不能读取加密库；QQ 官方既有资料暂不解密。</span></div></div>}</div>
+    <ConversationInfo open={info} onOpenChange={setInfo} conversation={selected || undefined} account={account} />
+  </section>
+}

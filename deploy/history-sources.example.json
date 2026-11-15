@@ -1,0 +1,12 @@
+[
+  {
+    "id": "wechat-archive",
+    "platform": "wechat",
+    "displayName": "微信历史副本",
+    "profilePath": "/history-snapshots/wechat-account",
+    "keysFile": "/run/secrets/history-wechat-keys.json",
+    "allowPlaintext": false,
+    "confirmedConsistentSnapshot": false,
+    "capturedAt": null
+  }
+]

@@ -1,6 +1,7 @@
 mod account_ops;
 mod adapters;
 mod config;
+mod history;
 mod legacy;
 mod llbot;
 mod model;
@@ -148,7 +149,10 @@ async fn main() -> anyhow::Result<()> {
         media_lock: Mutex::new(()),
         login_qr: Mutex::new(HashMap::new()),
     });
+    let history =
+        history::HistoryService::open(&app.config.data, app.config.legacy.as_deref()).await?;
     let protected = Router::new()
+        .merge(history::routes(history))
         .route("/session", get(session).delete(logout))
         .route("/accounts", get(accounts))
         .route("/accounts/{id}", get(account))

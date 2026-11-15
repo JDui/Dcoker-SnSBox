@@ -17,7 +17,7 @@ test('登录任务按账号隔离、二维码到期、未知结果和终态停�
     const id = path.includes('/fixture-a/') ? 'a' : 'b'
     if (path.endsWith('/login')) { calls.login++; expect(route.request().headers()['idempotency-key']).toBeTruthy(); return route.fulfill({ json: { state: id === 'b' ? 'uncertain' : 'pending', operationId: `task-${id}`, message: '合成登录请求，仅用于检查任务界面' } }) }
     if (path.endsWith('/qr')) return route.fulfill({ contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64') })
-    if (path.includes('/operations/')) { calls[id]++; return route.fulfill({ json: { id: `task-${id}`, accountId: `fixture-${id}`, kind: 'login', state: id === 'b' ? 'uncertain' : phases.a === 'expired' ? 'blocked' : 'pending', phase: phases[id], qrCode: `/api/v1/accounts/fixture-${id}/operations/task-${id}/qr`, expiresAt, qrGeneration: 1, createdAt: String(Math.floor(Date.now() / 1000)), message: id === 'b' ? '合成：任务结束但在线状态未确认' : '合成二维码图片，非有效登录码，不连接真实账号' } }) }
+    if (path.includes('/operations/')) { calls[id]++; return route.fulfill({ json: { id: `task-${id}`, accountId: `fixture-${id}`, kind: 'login', state: id === 'b' ? 'uncertain' : phases.a === 'succeeded' ? 'accepted' : phases.a === 'expired' ? 'blocked' : 'pending', phase: phases[id], qrCode: `/api/v1/accounts/fixture-${id}/operations/task-${id}/qr`, expiresAt, qrGeneration: 1, createdAt: String(Math.floor(Date.now() / 1000)), message: id === 'b' ? '合成：任务结束但在线状态未确认' : '合成二维码图片，非有效登录码，不连接真实账号' } }) }
     return route.fulfill({ status: 404, json: { error: { code: 'fixture_missing', message: 'fixture' } } })
   })
   await page.goto('/')
@@ -58,8 +58,14 @@ test('登录任务按账号隔离、二维码到期、未知结果和终态停�
   await a.getByRole('button', { name: '刷新任务', exact: true }).click()
   await expect(a.getByText('登录账号 · 二维码已过期', { exact: true })).toBeVisible()
   await expect(a.getByRole('img', { name: '微信登录二维码（仅当前任务）' })).toHaveCount(0)
-  phases.a = 'expired'
+  // The server may confirm login after the QR deadline; that old deadline must not override a completed task.
+  phases.a = 'succeeded'
   await a.getByRole('button', { name: '刷新任务', exact: true }).click()
+  await expect(a.getByText('登录账号 · 任务已完成', { exact: true })).toBeVisible()
+  await expect(a.getByText('此二维码已到期', { exact: false })).toHaveCount(0)
+  await expect(a.locator('.operation-needs-attention')).toHaveCount(0)
+  await expect(a.getByRole('img', { name: '微信登录二维码（仅当前任务）' })).toHaveCount(0)
+  await expect(a.locator('.account-state')).toHaveText('离线')
   await expect(a.getByRole('button', { name: '验证登录', exact: true })).toBeEnabled()
   const beforeTerminal = { a: calls.a, b: calls.b }
   await page.waitForTimeout(2200)

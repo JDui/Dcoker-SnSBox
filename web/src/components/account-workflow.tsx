@@ -48,9 +48,10 @@ export function AccountOperationPanel({ account, challenge, onUpdate }: { accoun
   const [imageFailed, setImageFailed] = useState(false)
   const value = operation.data
   const expiry = operationExpiry(value?.expiresAt)
-  const expired = Number.isFinite(expiry) && now >= expiry
-  const phase = value?.state === 'uncertain' ? 'needs_review' : expired && !isOperationTerminal(value) ? 'expired' : value?.phase
   const terminal = isOperationTerminal(value)
+  const waitingForQr = !!value && !terminal && ['awaiting_scan', 'awaiting_approval'].includes(value.phase)
+  const expired = waitingForQr && Number.isFinite(expiry) && now >= expiry
+  const phase = value?.state === 'uncertain' ? 'needs_review' : expired && !isOperationTerminal(value) ? 'expired' : value?.phase
   const image = value && !operation.error && !expired && !terminal && ['awaiting_scan', 'awaiting_approval'].includes(value.phase) ? qrUrl(value.qrCode, account.id, operationId, value.qrGeneration) : undefined
   useEffect(() => {
     if (!value) return
@@ -60,10 +61,10 @@ export function AccountOperationPanel({ account, challenge, onUpdate }: { accoun
   useEffect(() => { setImageFailed(false) }, [value?.qrGeneration, value?.qrCode])
   useEffect(() => {
     setNow(Date.now())
-    if (!Number.isFinite(expiry)) return
+    if (!waitingForQr || !Number.isFinite(expiry)) return
     const timeout = window.setTimeout(() => setNow(Date.now()), Math.max(0, Math.min(expiry - Date.now() + 30, 2_147_483_647)))
     return () => window.clearTimeout(timeout)
-  }, [expiry])
+  }, [expiry, waitingForQr])
   return <div className={cn('operation-panel', phase === 'succeeded' && 'operation-succeeded', (value?.state === 'blocked' || value?.state === 'uncertain' || expired) && 'operation-needs-attention')}>
     <div className="operation-heading">{operation.isPending ? <LoaderCircle size={16} className="spinning" /> : phase === 'succeeded' ? <Check size={16} /> : phase === 'awaiting_scan' ? <ScanLine size={16} /> : <Clock3 size={16} />}<strong>{value?.kind === 'logout' ? '退出账号' : '登录账号'} · {phaseLabel(phase)}</strong><Button variant="ghost" size="sm" onClick={() => operation.refetch()} disabled={operation.isFetching}><RefreshCw size={13} />刷新任务</Button></div>
     <p>{operation.error instanceof Error ? operation.error.message : expired ? '此二维码已到期，不会再展示；请先刷新任务确认上游状态，再决定是否发起新登录。' : value?.message || challenge.message || '正在查询上游任务状态。'}</p>

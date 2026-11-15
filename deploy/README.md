@@ -20,6 +20,12 @@ For reproducible pinned source build commands, prerequisites and a loopback-safe
 
 Agent WeChat may need a stopped complete official profile and can write to the selected profile itself. That is a separately operated upstream, not an automatic migration action of this Compose. Use an explicitly prepared isolated profile only after following the upstream's stopped-source procedure. Never allow two processes to write the same official profile. QQ Milky/Lagrange authentication data is independent of official QQ's tokens.
 
+## Read existing history from an independent source
+
+The dedicated read-only history workspace uses pinned `wechat-profile 2.5.0` for supported Linux WeChat profiles. Configure an independently prepared consistent source and matching protected keys using [HISTORY_SETUP.md](HISTORY_SETUP.md). It has separate indexes, pagination and text search; it does not send messages or take over the live WS profile. Plaintext compatible exports are an explicit option. Official QQNT history decryption is unsupported. The existing `SNSBOX_LEGACY_CONFIG` inspection remains metadata-only and is never implicitly upgraded into an import.
+
+The history overlay supplies a separate disk-backed scratch volume. Do not place temporary files inside a source or assume the default small `/tmp` tmpfs can hold large profile copies. Synthetic encrypted/plaintext WAL checks passed; the current user's real encrypted history has not been read because no consistent copy or key was supplied.
+
 ## Scope and operation
 
 - `/health` indicates HTTP service availability; online account status is separate. Unconfigured accounts remain visible without fake conversations.

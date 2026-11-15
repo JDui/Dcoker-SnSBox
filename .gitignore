@@ -8,6 +8,7 @@
 /compose.upstreams.yaml
 /compose.llbot.yaml
 /compose.wechat-proxy.yaml
+/compose.history.yaml
 /.env
 *.log
 *.sqlite*
