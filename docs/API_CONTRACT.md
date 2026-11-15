@@ -24,6 +24,8 @@
 
 QQ Milky 的有效 UIN/HTTP 成功不再直接显示在线：缺少可靠在线证据时 status=connecting；收到消息事件可更新在线，断流/离线事件撤销该状态。网页发送仍按实际状态与能力控制。
 
+微信未认证时后台同步不读取会话：进行中的登录任务显示 connecting，未登录且没有进行中任务显示 offline；服务连接/鉴权失败才显示 error。LLBot 明确缺少 Auth Token 时登录返回 `state:"blocked", phase:"auth_required"`，不会请求二维码或持续轮询。
+
 可选 LLBot 8.3.2 管理：QQ 配置 `managementUrl`、`managementTokenFile` 和必须提供的 `upstreamAccountId`（预期 UIN）。`managementTokenFile` 保存上游 `X-Webui-Token` 认证值，浏览器不可见。direct 模式复用统一登录/注销/任务/二维码接口；PMHQ 模式拒绝账号操作。auto+allowQr 请求二维码，saved-device 或禁止二维码时只请求指定 UIN 的 quick-login。二维码仅内存暂存，过期/重启失效，轮询不刷新；注销会撤销该账号的本地二维码。管理接口 online 与 UIN、Milky get_login_info、SSE self_id 和发送前身份均校验；错号不提交发送。无管理配置的旧 Lagrange 配置继续可用，但不开放网页登录/注销。部署入口见 `deploy/compose.llbot.example.yaml`。
 
 - `GET /api/v1/accounts`

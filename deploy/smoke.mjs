@@ -20,9 +20,11 @@ let mediaReads = 0;
 let started = false;
 let loginPhase = 'awaiting_scan';
 let accountHttp = 200;
+let wxAuthenticated = true;
 let qqEvent;
 let qqOnline=true;
 let qqUin=10001;
+let qqHasAuthToken=true;
 const observed=[];
 const fixture = http.createServer(async (req, res) => {
   if (req.headers.authorization !== `Bearer ${token}` && req.headers['x-webui-token']!==token) { res.writeHead(401).end(); return; }
@@ -31,13 +33,14 @@ const fixture = http.createServer(async (req, res) => {
   const chunks = [];
   for await (const c of req) chunks.push(c);
   const json = value => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(value)); };
-  if (url.pathname === '/v1/accounts/wx') { if(accountHttp!==200){res.writeHead(accountHttp).end();return;} return json({ authenticated: true, connection: 'online' }); }
+  if (url.pathname === '/v1/accounts/wx') { if(accountHttp!==200){res.writeHead(accountHttp).end();return;} return json({ authenticated: wxAuthenticated, connection: wxAuthenticated?'online':'disconnected' }); }
   const operation = kind => ({ id: kind+'-op', kind, state: kind==='login'?loginPhase:'succeeded', result: {qrAvailable:loginPhase==='awaiting_scan',expiresAt:1794737100,qrGeneration:2}, createdAt:'2026-11-15T10:00:00.123456789+00:00' });
   if (url.pathname === '/v1/accounts/wx/login-attempts') return json(operation('login'));
   if (url.pathname === '/v1/accounts/wx/logout') return json(operation('logout'));
   if (url.pathname === '/v1/accounts/wx/operations/login-op') {if(req.method==='DELETE')loginPhase='cancelled';return json(operation('login'));}
   if (url.pathname === '/v1/accounts/wx/login-attempts/login-op/qr') {if(url.searchParams.has('generation')&&url.searchParams.get('generation')!=='2'){res.writeHead(409).end();return;}res.writeHead(200,{'Content-Type':'image/png'}).end(png);return;}
   if (url.pathname === '/api/login-info') return json({success:true,data:{uin:'10001',online:qqOnline,mode:'direct'}});
+  if (url.pathname === '/api/auth-token/status') return json({success:true,data:{applicable:true,hasToken:qqHasAuthToken,validation:qqHasAuthToken?'valid':'idle'}});
   if (url.pathname === '/api/logout') {qqOnline=false;return json({success:true});}
   if (url.pathname === '/api/login-qrcode') return json({success:true,data:{pngBase64QrcodeData:'data:image/png;base64,'+png.toString('base64'),expireTime:120,qrcodeUrl:'must-not-leak'}});
   if (url.pathname === '/v1/accounts/wx/threads') return json({ items: [{ id: 'filehelper', kind: 'direct', displayName: 'Synthetic File Transfer' }], nextCursor: null });
@@ -122,6 +125,12 @@ try {
   const replayLogin=await(await request('/api/v1/accounts/wx/login',command({},'POST','login-key'))).json();assert.equal(replayLogin.operationId,login.operationId);
   assert.equal(observed.filter(p=>p==='POST /v1/accounts/wx/login-attempts').length,1);
   assert.equal((await request('/api/v1/accounts/wx/login',command({strategy:'qr'},'POST','login-key'))).status,409);
+  wxAuthenticated=false;
+  const threadReads=observed.filter(p=>p==='GET /v1/accounts/wx/threads').length;
+  assert.equal((await request('/api/v1/accounts/wx/sync',command({}))).status,200);
+  assert.equal((await(await request('/api/v1/accounts')).json()).items.find(a=>a.id==='wx').status,'connecting');
+  assert.equal(observed.filter(p=>p==='GET /v1/accounts/wx/threads').length,threadReads,'waiting for scan must not read history');
+  wxAuthenticated=true;
   loginPhase='succeeded';
   assert.equal((await(await request(`/api/v1/accounts/wx/operations/${login.operationId}`)).json()).state,'accepted');
   assert.equal((await request(login.qrCode)).status,422);
@@ -130,6 +139,10 @@ try {
   assert.equal((await(await request('/api/v1/accounts')).json()).items.find(a=>a.id==='wx').status,'offline');
   if(withLlbot){
     const out=await(await request('/api/v1/accounts/qq/logout',command({},'POST','qq-logout'))).json();assert.equal(out.state,'accepted');
+    qqHasAuthToken=false;
+    const qrRequests=observed.filter(p=>p==='GET /api/login-qrcode').length;
+    const missingAuth=await(await request('/api/v1/accounts/qq/login',command({},'POST','qq-no-auth'))).json();assert.equal(missingAuth.state,'blocked');assert.equal(missingAuth.phase,'auth_required');
+    assert.equal(observed.filter(p=>p==='GET /api/login-qrcode').length,qrRequests,'missing Auth Token must not request QR');qqHasAuthToken=true;
     const op=await(await request('/api/v1/accounts/qq/login',command({},'POST','qq-login'))).json();assert.equal(op.state,'pending');assert.ok(op.qrCode);assert.ok(!JSON.stringify(op).includes('must-not-leak'));
     assert.equal((await request(op.qrCode)).status,200);assert.equal((await request(op.qrCode+'?generation=2')).status,409);
     qqOnline=true;assert.equal((await(await request(`/api/v1/accounts/qq/operations/${op.operationId}`)).json()).state,'accepted');assert.equal((await request(op.qrCode)).status,422);

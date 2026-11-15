@@ -68,3 +68,18 @@ QQ 实际部署尝试与阻塞：Lagrange 固定源码 Docker build 在 alpine �
 交接清理：本线程创建的微信 daemon、聚合链路探测容器、四个上游构建容器和空白账号测试卷均已清理；合成冒烟自行清理自己的容器/匿名卷。没有操作主线程 npm 预览。保留 `snsbox-cargo-cache`、`snsbox-build-target`、`snsbox-wx-target` 编译缓存卷及本地构建镜像，方便后续复用。临时目录 `%TEMP%/snsbox-wx-live-empty` 的递归清理被自动审批审查以 `blocked by policy` 拦截，因此仅该临时合成配置/随机测试 API 凭据目录尚未删除（无真实账号资料）；未继续绕过审查。上游源码缓存、未完成的 LLBot zip 和仅输出脱敏错误类别的诊断 example 也保留在 `%TEMP%`，不是 Git 或交付包的一部分。下载进程已停止。
 
 后续最小清理：核对绝对路径及普通文件属性后，非递归删除本轮生成的 token 与 headers 两个随机测试凭据文件成功；没有重试递归删除。snsbox-wx-live-empty 目录仅保留 server.toml 和 accounts.json 合成配置（引用已删除的 token 路径），无凭据内容。公开源码、诊断 example、编译缓存及不完整下载仍保留。
+
+## 第三轮：真实预登录恢复与固定源码 QQ 启动（2026-11-15）
+
+本节更新上轮的传输/下载阻塞结论；用户当前明确暂不扫码，QQ 没有 Auth Token，先继续微信与只读历史。
+
+- **微信预登录已恢复**。固定版本 `wechat-protocol/src/mmtls.rs:285` 的首段握手使用原始 TCP `long.weixin.qq.com:80`；短链使用 `http://short.weixin.qq.com/mmtls/...` 并显式 no_proxy。普通 HTTP/HTTPS 环境变量不会覆盖首段原始 TCP。本机现有代理为 loopback 7897，Docker 默认 HTTP 代理路径下直接 MMTLS 读取超时。仅对独立进程使用 HTTP CONNECT 后，同一编译产物成功取得 QR；随后换为成熟 `proxychains4 4.16` 的进程级 CONNECT，仍成功。未修改系统代理、VPN、全局 DNS，未关闭 TLS/MMTLS 校验，未改私有协议源码。
+- **真实 SnSBox → daemon → 微信 QR 链路已通过**。独立 managed 账号返回 `pending/awaiting_scan`，SnSBox 受 Cookie 鉴权的 PNG 返回 HTTP 200、6384 字节；只记录状态和长度，没有打印/提交二维码。未扫码确认、未发消息、未注销现用客户端，也未挂载 X: 活跃资料。此证据说明空白 managed 资料可到扫码阶段，不能再把上轮失败归因为必需旧 profile。
+- 现保留本机 `http://localhost:18080`，容器 `snsbox-mvp`、`snsbox-mvp-wechat`，命名卷 `snsbox-mvp-app-data`、`snsbox-mvp-wechat-data`。配置和管理员密码在 ignored `private/mvp-login/`；只供本机读取，不写入文档。用户要求暂不扫码，旧挑战已结束，没有循环刷新。更新后的服务当前显示微信 offline（尚未登录），以后可从页面手工发起。该现场使用缓存工具链镜像及原编译产物作为隔离 bootstrap，**不是精简生产发布镜像**。
+- 修复主线程实测发现的状态抖动：未认证时不拉取会话。近期进行中的登录任务保持 connecting，无登录任务则 offline；上游不可访问/鉴权错误才是 error。不再让后台 sync 在 awaiting_scan 时覆盖成 error。
+- **QQ 下载问题已通过源码构建绕过**。使用 `v8.3.2` 实际提交 `dc2b2b90092ef0f571b5546878288b83fff1e436`，Yarn 4.18.0 + immutable lock + 随仓库提供的 Linux 原生 sign-proxy，构建成功。上轮记录的 `7dec94b7...` 是 annotated tag 对象，实际提交应使用这里的 peeled commit。没有手工文件哈希校验。`deploy/llbot-source.Dockerfile` 实际构建 `snsbox-llbot:8.3.2-source`，Linux AMD64，约 348 MB；实际启动该镜像后 login-info HTTP 200、direct、online=false；auth-token/status HTTP 200、hasToken=false、validation=idle。该镜像仅打包 API 登录 bootstrap，不含上游 WebUI 静态构建和 FFmpeg，不能当作媒体功能交付。
+- LLBot 缺少 Auth Token 时 SnSBox 直接返回 `blocked/auth_required`，不会发起 QR。用户明确无此 Token，本轮不申请外部服务、不等待、不从活跃 QQ 资料推断 UIN。QQ bootstrap 容器已停止，私密合成 bootstrap 目录和镜像保留，不影响微信现场。
+
+必要验证：`snsbox:mvp-login` 构建成功；`node deploy/smoke.mjs snsbox:mvp-login --llbot` 通过，新增断言覆盖等待扫码时 sync 不读取 threads、不误报 error，以及缺少 LLBot Auth Token 不调用二维码接口。更新本地 SnSBox 镜像后通过真实 daemon 检查未登录显示 offline。`sh -n deploy/wechat-proxy/entrypoint.sh`、新 Compose 的 `config --quiet` 通过。代理扩展 Dockerfile 是基于官方 runtime 的部署配方，尚未在本机重建完整官方基础 runtime；已实测的是相同 proxychains4 工具和进程启动方式，不混淆两项证据。
+
+部署参考：`deploy/wechat-proxy/`、`deploy/compose.wechat-proxy.example.yaml` 和 `deploy/llbot-source.Dockerfile`。临时 CONNECT 转发容器、源码构建容器和工具安装容器已清理。保留上轮编译 cache、代理工具链 bootstrap 镜像、QQ source 镜像，以及两个微信 MVP 现场容器。未操作主线程预览服务。下一项最大不确定性为用户实际扫码确认后的身份/会话恢复；另一个线程负责只读历史，当前不以 QR 成功承诺旧库解密或完整历史。

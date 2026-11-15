@@ -58,3 +58,22 @@ SnSBox 应适配以上来源，不把“改写数据库”等同于发消息，�
 6. 决策：继续接入、保持只读、替换候选或等待缺失证据。
 
 优先解决微信接入和资料兼容；QQ 复用现成实现。未经验证，不以开发一个漂亮空壳作为接入可行性结论。
+
+## 第三轮：现成历史读取与取钥方案核对
+
+用户补充要求遇到阻碍时寻找合适的现存项目，包括微信数据逆向工具。本轮继续复用 Agent WeChat 读取器，同时核对以下替代入口；没有在活跃 WS 上执行取钥、调试器、锁定或导出程序。
+
+| 候选 | 主线程核对结果 | 当前决策 |
+| --- | --- | --- |
+| [chatlog-keeper](https://github.com/labazhou2024/chatlog-keeper/tree/d2feeec09a192af9a4738547b8543cf096386464) | 固定源码有 Linux 微信/QQ 读取、密钥管理、SQLCipher 和已提交 WAL 恢复；MIT。Linux 文档的 4.1.13.9 成功案例属于上游证据，未在本项目复现 | 可作为独立导出/转换来源候选，优先于自行重写密码学与 WAL |
+| [wcdb-key-tool](https://github.com/TANGandXUE/wcdb-key-tool) | 文档区分旧版 raw-key 扫描与新版 Linux GDB 捕获派生参数；新版本路径要求重新登录 | 研究参考；不对正在使用的 WS 执行主动调试或重登录 |
+| [wx-cli](https://github.com/windjc06/wx-cli) | 文档描述 Linux `/proc/<pid>/mem` 读取及本地解密缓存；页面指向其他上游/发行命名，尚未固定完整可运行来源 | 备用候选，不直接按安装脚本执行，不认定适配当前微信版本 |
+
+对 chatlog-keeper 的额外源码审查：
+
+- [`core/_snapshot.py`](https://github.com/labazhou2024/chatlog-keeper/blob/d2feeec09a192af9a4738547b8543cf096386464/chatlog_keeper/core/_snapshot.py) 默认复制 DB/WAL/SHM，并比较前后大小、mtime 和首尾内容指纹；有界重试是乐观稳定性检查，不等同文件系统原子快照，尤其不能直接保证跨 SMB/NAS 缓存的一致性。
+- 同文件的 Windows `allow_active_wal` 路径会以 `r+b` 打开源 SHM 并取得排他锁；本项目活跃源只读模式不能启用此回退。禁止把工具文档的“只读导出”视为所有参数均符合当前约束。
+- [`core/_wal.py`](https://github.com/labazhou2024/chatlog-keeper/blob/d2feeec09a192af9a4738547b8543cf096386464/chatlog_keeper/core/_wal.py) 实际校验 WAL/SHM 结构、帧和提交边界，再在派生明文文件上重放；协议要求的校验不属于额外文件 SHA 验收。
+- [Linux 取钥说明](https://github.com/labazhou2024/chatlog-keeper/blob/d2feeec09a192af9a4738547b8543cf096386464/docs/linux.zh.md) 的主动模式启动并退出官方客户端子进程；被动模式也要求在客户端运行主机上读取进程内存并满足操作系统权限。本机只有文件共享路径，无法据此取得 NAS 进程内存，不能把“找到工具”说成“已获得密钥”。
+
+后续接入可以接受已验证读取器生成的独立导出，保留来源、时间和覆盖范围。真实旧记录读取仍需要可用密钥及满足一致性要求的来源；不因当前缺少这些条件而放弃实现分页、检索与只读界面，也不把演示内容当作用户历史。

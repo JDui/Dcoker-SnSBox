@@ -7,6 +7,7 @@
 /private/
 /compose.upstreams.yaml
 /compose.llbot.yaml
+/compose.wechat-proxy.yaml
 /.env
 *.log
 *.sqlite*

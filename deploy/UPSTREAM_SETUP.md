@@ -73,3 +73,47 @@ docker compose -f compose.yaml -f compose.llbot.yaml up -d
 固定源码已完成 AMD64 编译，空白独立 daemon 健康、managed 账号创建，以及 SnSBox 的登录失败/注销完成状态映射均已实测。空白登录返回 `login_failed`，没有二维码，不能用该结果承诺新账号登录可用。详细有界诊断见后端记录。
 
 SnSBox 的“创建独立账号”只创建 managed 记录，不传 `--official`、不注册外部路径。现有活跃 WS 源只能只读预检；只有另行准备并确认一致性的完整副本才可进入上游的独占 profile 流程。普通文件复制正在写入的数据库不是一致性快照。副本必须有独立写入所有权，不能指向原目录；原客户端继续使用原源。导入可能改写副本，因此保留导入前副本；回滚不意味着让官方客户端直接读取 native 已改写的资料。目录识别、密钥兼容、历史可读、令牌复用仍是分别待验收的项目。
+
+## 微信：本机代理环境的进程级 CONNECT 方案
+
+本轮已证明固定 native 二进制通过现有 HTTP CONNECT 代理可以生成真实 QR；不是取消协议认证。仅当部署网络需要这条路径时使用代理扩展。未配置代理时仍走 direct。不要为 SnSBox 修改整机 VPN/代理规则。
+
+先按上文构建官方固定 runtime `snsbox-agent-wechat:ce5c0687`，然后在 SnSBox 根目录执行：
+
+```sh
+docker build --platform linux/amd64 -t snsbox-agent-wechat-proxy:ce5c0687 deploy/wechat-proxy
+cp deploy/compose.wechat-proxy.example.yaml compose.wechat-proxy.yaml
+```
+
+该扩展复用 Debian proxychains4，通过进程的 connect/getaddrinfo 拦截转为 CONNECT，微信认证仍由原版 native 完成。新 `private/wechat-server.toml` 必须指向 entrypoint 在 Linux 私密目录中复制的 token，**不是旧 `/run/secrets` bind 路径**：
+
+```toml
+schemaVersion = 1
+listen = "127.0.0.1:6174"
+dataDir = "/var/lib/agent-wechat"
+tokenFile = "/var/cache/agent-wechat/snsbox-private/wechat-api-token"
+```
+
+`TMPDIR=/var/cache/agent-wechat` 与该路径保持一致。启动脚本只复制自有 TOML/API token 到 0700 目录和 0600 文件，用于适配 Docker Desktop 的 bind 权限；不复制官方资料。Linux 主机需让 UID 10001 能读取源配置与 secret。沿用微信 accounts.json 的 loopback 地址和独立 upstreamAccountId，首次在页面创建 managed 账号。
+
+```sh
+# 仅为此 Compose 进程设置；主机/端口由实际已有代理决定。
+WX_CONNECT_PROXY_HOST=host.docker.internal WX_CONNECT_PROXY_PORT=7897 \
+  docker compose -f compose.yaml -f compose.wechat-proxy.yaml up -d
+```
+
+这里的 host.docker.internal:7897 是本次 Windows 桌面已验证的现有代理入口，不是 NAS 通用默认。NAS 上不需要代理就省略 HOST；需要时填该 NAS 能访问的已有 HTTP CONNECT 代理。此配方不增加代理端口公开映射，不获取代理凭据，不修改系统网络。当前扩展 recipe 已做 shell/Compose 检查；本机扫码现场用缓存工具链 bootstrap 镜像实测同一 proxychains 路径，正式官方 runtime 扩展镜像尚待本机完整构建。
+
+## QQ：固定源码构建的可运行登录 bootstrap
+
+发行 zip/镜像下载缓慢时，复用固定源码随库提供的原生组件，不重新实现 QQ 协议：
+
+```sh
+git clone https://github.com/LuckyLilliaDev/LuckyLilliaBot.git ../llbot-snsbox
+git -C ../llbot-snsbox checkout --detach dc2b2b90092ef0f571b5546878288b83fff1e436
+docker build --platform linux/amd64 -f deploy/llbot-source.Dockerfile -t snsbox-llbot:8.3.2-source ../llbot-snsbox
+# 在上述 LLBot Compose 中选择该本地镜像：
+SNSBOX_LLBOT_IMAGE=snsbox-llbot:8.3.2-source docker compose -f compose.yaml -f compose.llbot.yaml up -d
+```
+
+`NODE_IMAGE` build arg 可选择同版可信 Node 镜像站。实际构建和启动已通过；无需获取失败的发布 zip。镜像仅含后端 API 登录 bootstrap，没有上游 WebUI 静态资源和 FFmpeg，媒体处理待后续扩展；SnSBox 自己的网页仍可代理其登录 API。Auth Token 是实质前置条件，未提供时返回明确 auth_required，不继续申请 QR。用户本轮没有 Token，暂不启用 QQ 登录，不把编译/管理 API 健康当作真实 QQ 登录成功。

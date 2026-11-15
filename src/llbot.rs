@@ -73,6 +73,16 @@ pub async fn start(app: &App, a: &AccountConfig, body: &mut Value, request: &Val
     if status["online"] == true {
         return poll(app, a, body).await;
     }
+    if let Ok(auth) = call(app, a, "auth-token/status", None).await {
+        if auth["applicable"] == true && auth["hasToken"] == false {
+            body["state"] = json!("blocked");
+            body["phase"] = json!("auth_required");
+            body["message"] = json!(
+                "独立 LLBot 尚未配置 Auth Token；请在其私密 data/auth_token.txt 配置后再发起登录。此令牌不是官方 QQ 登录态，当前没有请求二维码。"
+            );
+            return Ok(());
+        }
+    }
     if request["strategy"] == "saved-device" || request["allowQr"] == false {
         call(
             app,

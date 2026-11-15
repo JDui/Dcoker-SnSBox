@@ -1,0 +1,33 @@
+# Copy to root as compose.wechat-proxy.yaml. No official profile is mounted.
+services:
+  snsbox:
+    environment:
+      SNSBOX_ACCOUNTS_FILE: /run/config/accounts.json
+    volumes:
+      - ./private/accounts.json:/run/config/accounts.json:ro
+      - ./private/wechat-api-token:/run/secrets/wechat-api-token:ro
+  wechat-upstream:
+    image: snsbox-agent-wechat-proxy:ce5c0687
+    platform: linux/amd64
+    network_mode: service:snsbox
+    depends_on: [snsbox]
+    read_only: true
+    user: '10001:10001'
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      TMPDIR: /var/cache/agent-wechat
+      # Leave HOST empty for ordinary direct networking. For this desktop's
+      # verified existing proxy only: host.docker.internal / 7897.
+      WX_CONNECT_PROXY_HOST: ${WX_CONNECT_PROXY_HOST:-}
+      WX_CONNECT_PROXY_PORT: ${WX_CONNECT_PROXY_PORT:-7897}
+    volumes:
+      - snsbox-wechat-native:/var/lib/agent-wechat
+      - snsbox-wechat-scratch:/var/cache/agent-wechat
+      - ./private/wechat-server.toml:/run/config/wechat-server.toml:ro
+      - ./private/wechat-api-token:/run/secrets/wechat-api-token:ro
+    restart: unless-stopped
+    logging: {driver: none}
+volumes:
+  snsbox-wechat-native:
+  snsbox-wechat-scratch:

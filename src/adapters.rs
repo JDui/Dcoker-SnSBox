@@ -170,14 +170,23 @@ pub fn safe_link(s: &str) -> bool {
 
 pub async fn sync(app: &App, a: &AccountConfig) -> Result<()> {
     let guard = app.sync_locks.get(&a.id).unwrap().lock().await;
+    let native = if a.platform == "wechat" {
+        Some(wx(app, a, &[], None, None).await)
+    } else {
+        None
+    };
+    let native_waiting =
+        matches!(&native,Some(Ok(v)) if v["authenticated"]!=true||v["connection"]!="online");
     let managed = if a.management_url.is_some() {
         Some(crate::llbot::online(app, a).await)
     } else {
         None
     };
-    let result = match &managed {
-        Some(Ok(false)) => Ok(()),
-        Some(Err(_)) => Err(anyhow::anyhow!("LLBot identity or connection unverified")),
+    let result = match (&managed, &native) {
+        (_, Some(Err(_))) => Err(anyhow::anyhow!("WeChat account status unavailable")),
+        _ if native_waiting => Ok(()),
+        (Some(Ok(false)), _) => Ok(()),
+        (Some(Err(_)), _) => Err(anyhow::anyhow!("LLBot identity or connection unverified")),
         _ => sync_inner(app, a).await,
     };
     if let Err(error) = &result {
@@ -187,7 +196,24 @@ pub async fn sync(app: &App, a: &AccountConfig) -> Result<()> {
     }
     drop(guard);
     let previous = app.account_status.read().await.get(&a.id).cloned();
+    let pending_login = if native_waiting {
+        let cutoff = (chrono::Utc::now() - chrono::Duration::seconds(360))
+            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        sqlx::query_scalar::<_,bool>("SELECT EXISTS(SELECT 1 FROM account_operations WHERE account_id=? AND kind='login' AND json_extract(body,'$.state')='pending' AND created_at>=?)").bind(&a.id).bind(cutoff).fetch_one(&app.db).await?
+    } else {
+        false
+    };
     let (status, message) = match &result {
+        Ok(()) if native_waiting => {
+            if pending_login || matches!(&native,Some(Ok(v)) if v["connection"]=="reconnecting") {
+                (
+                    "connecting",
+                    "微信正在等待登录或重连；尚未认证，暂不读取会话".into(),
+                )
+            } else {
+                ("offline", "微信尚未登录；服务正常，暂不读取会话".into())
+            }
+        }
         Ok(()) if matches!(managed, Some(Ok(false))) => {
             ("offline", "LLBot 管理接口确认账号尚未登录".into())
         }
@@ -236,10 +262,7 @@ async fn sync_inner(app: &App, a: &AccountConfig) -> Result<()> {
         bail!("upstream unconfigured");
     }
     if a.platform == "wechat" {
-        let account = wx(app, a, &[], None, None).await?;
-        if account["authenticated"] != true || account["connection"] != "online" {
-            bail!("WeChat upstream account is not authenticated and online");
-        }
+        // sync() has checked authenticated/connection before entering history reads.
         let mut cursor: Option<String> = None;
         for _ in 0..100 {
             let mut url = a.wx_url(&["threads"])?;
