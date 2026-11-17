@@ -2,6 +2,14 @@
 
 微信历史读取使用固定 `wechat-profile = 2.5.0`，复用其 SQLCipher 和官方 Linux schema 读取器。它不需要登录网络上游，不会注册或接管 profile。只有独立且经过一致性确认的资料才能建立索引；仅有活跃 WS 文件共享路径时，页面会显示缺少来源条件。QQ 支持下述已完成的 chatlog-keeper JSON 导出，不直接解密官方 QQNT 数据库。
 
+## QQ：从已解密 SQLite 加载
+
+已经有独立明文 `nt_msg.db` 时，使用 [qq-decrypted 转换工具](../tools/qq-decrypted/README.md) 生成 JSON 和来源配置，再按下节只读挂载。支持 QQNT 数字列 `c2c_msg_table` / `group_msg_table`，复制到私有临时目录后才打开 SQLite，原输入不连接数据库；拒绝活跃保护路径、未确认副本及任何旁路 WAL/SHM/journal。不会取钥、登录、解密或 checkpoint。
+
+新格式为 `snsbox-qq-decrypted-v1`（[配置样例](history-qq-decrypted.example.json)），普通长文本不再受上游最终 1000 字符摘要截断；单条 UTF-8 64 KiB 上限，超限和不可解析记录保留占位，复杂引用/卡片仍有摘要限制，附件未导入。整个输入上限 2 GiB，输出 64 MiB / 10 万条。不要把原版 chatlog-keeper 已截断的导出直接改标为新格式。
+
+2026-11-17 定向转换验证使用同 schema 合成 SQLite：账号 A 124 条 / 2 会话，含 5029 字符长文与 2 条不可读占位；账号 B 2 条 / 2 会话。Windows 与 Linux 转换测试通过；主线程已使用生成器→转换器实际产物通过 AMD64 容器 HTTP 的 126 条索引、长文尾部搜索、未知占位与上下文分页检查。真实用户明文库兼容尚未验收。
+
 ## QQ：导入现成 JSON 导出
 
 使用固定 [chatlog-keeper d2feeec](https://github.com/labazhou2024/chatlog-keeper/tree/d2feeec09a192af9a4738547b8543cf096386464) 导出的 `qq_messages.json` 数组。SnSBox 只读取已经完成、独立保存的导出文件，不运行上游 CLI、不读取登录凭据、不发起 QQ 登录或密钥请求。不能将活跃 `nt_msg.db` 重命名为 JSON；当前没有替用户取得真实导出或密钥。
@@ -13,7 +21,7 @@
 
 上游实际字段：`account_id`、`conversation_id`（或 `chat_uid`）、`conversation_type: direct/group`（或 `chat_kind: friend/group`）、`ts`（秒级数字）、`content`、`sender_name`、`sender_qq`（整数）、可选 `is_self`。账号、会话类型、会话编号共同隔离；同秒重复 `source_offset` 不会丢记录。非数字账号标识时，上游 `is_self:false` 不足以确定方向，因此可能显示未知方向。
 
-当前限制：单文件最多 64 MiB、10 万条，超限整批拒绝；只索引导出文字，忽略附件路径/URL，不下载媒体，不执行正文 HTML。固定上游 `read_recent_dicts()` 会按时间窗口过滤并将正文截为 1500 字符，缺少稳定消息 ID，故成功状态始终为 `partial`，重启也保留限制说明。本地 ID 用导出行号保持同秒多条记录；改写或重新导出后的 ID 不用于跨导出归并。导出原文和索引均含明文私人资料，不进入 Git。
+当前限制：单文件最多 64 MiB、10 万条，超限整批拒绝；只索引导出文字，忽略附件路径/URL，不下载媒体，不执行正文 HTML。固定上游 `read_recent_dicts()` 有时间窗口与 1500 字符外层限制，进一步核对发现底层 `_extract_msg_text()` 已先截到 1000 字符；缺少稳定消息 ID，故成功状态始终为 `partial`，重启也保留限制说明。本地 ID 用导出行号保持同秒多条记录；改写或重新导出后的 ID 不用于跨导出归并。导出原文和索引均含明文私人资料，不进入 Git。
 
 ## 准备来源
 

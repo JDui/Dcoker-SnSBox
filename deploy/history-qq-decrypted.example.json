@@ -1,0 +1,11 @@
+[
+  {
+    "id": "qq-decrypted",
+    "platform": "qq",
+    "displayName": "QQ 明文历史",
+    "format": "snsbox-qq-decrypted-v1",
+    "profilePath": "/history-qq/qq_messages.json",
+    "confirmedConsistentSnapshot": false,
+    "capturedAt": null
+  }
+]

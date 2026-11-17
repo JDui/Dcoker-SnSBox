@@ -4,6 +4,12 @@
 
 ## 固定上游源码依据
 
+2026-11-17 解密后加载增量：新增 [qq-decrypted 离线转换](../tools/qq-decrypted/README.md)，直接支持独立明文 QQNT 数字列 SQLite（`c2c_msg_table` / `group_msg_table`），复用固定 chatlog-keeper MIT 消息解析器。仅复制输入文件后连接私有副本，拒绝活跃根、链接、未确认副本、WAL/SHM/journal 和覆盖输出。产物为 JSON、来源配置、无正文报告，格式 `snsbox-qq-decrypted-v1` 接入原历史 API。去掉上游底层 1000 字符最终截断；普通长文本保留到 64 KiB，超限/不可解析保留占位，复杂内容仍有摘要限制。旧 `chatlog-keeper-qq-json` 继续兼容。数字账号/发送人能确认时保留入站/出站方向，无法确认时为 null。来源初始化、刷新与重启恢复均按格式说明限制。
+
+本增量必要检查：`python -B -m unittest discover -s tools/qq-decrypted -p test_convert.py -v` 在 Windows 2 项通过（0.192 秒）、Linux 2 项通过（0.020 秒）；覆盖真实 SQLite/最小合成 protobuf 经同一转换器、5029 字符正文、同秒记录、账号范围、未知内容不泄露二进制 URL、原文件字节和目录不变、边界拒绝与超限占位。`cargo test --locked --offline qq_export -- --nocapture` 2 项通过（0.26 秒，另有增量编译），保留旧格式回归。初次 Windows 检查修复了 fd/path ctime 语义不一致；测试中的 SQLite 句柄也已显式关闭，避免仅测试清理失败。没有 SHA 摘要检查或全量测试。
+
+主线程已报告 AMD64 构建与实际 HTTP 集成通过：使用 `fixture.py → convert.py` 生成的两个来源，124 + 2 条消息，长文尾部检索、未知占位无附件 URL 泄露、上下文分页、跨会话 404 和旧代际 409 均通过。测试源全部合成，尚未读取实际用户解密库或取得真实密钥。本协作线程未访问 X:、未登录、未改动现用客户端、未提交推送；主线程负责阶段提交。下一项最大不确定性为真实明文 QQNT 版本和消息变体兼容，而非本轮继续取钥。
+
 最新历史增量（2026-11-17）：Rust 历史服务新增 `chatlog-keeper-qq-json` 导入器，直接适配固定上游 `qq_messages.json`，复用已有事务索引、分页、搜索与来源隔离。配置 `format` 可省略以保留旧微信行为；QQ 默认仍不接受加密 `nt_msg.db`。`SourceStatus` 新增 `format` / `canRefresh`，前端按能力开放读取，不再以 QQ 平台一律禁用。JSON 读取始终只读、不打开 SQLite 来源、不调用网络/取钥/CLI、不处理附件路径；64 MiB / 10 万条上限和字段校验失败整批拒绝。身份包含来源、账号、会话类型和会话 ID，同秒消息用行号保留。上游导出存在时间范围与 1500 字符正文截断，成功始终 `partial`，刷新和重启恢复均保留说明。
 
 本增量针对性验证：Linux AMD64 缓存构建环境运行 `cargo test --locked --offline qq_export -- --nocapture`，2 项通过（0.29 秒，不含编译）：5 条同秒记录 / 4 会话，账号与群私聊隔离、来源间不可串用会话、原导出字节不变、附件私有路径不进入响应、未知方向保留 null、无效替换不覆写旧索引、重启恢复、64 MiB 超限及冲突字段拒绝。无全量应用测试、无手工文件摘要校验。HTTP 镜像验收由主线程另行执行，以上不代表该验收完成；全部记录均合成，未读取用户真实 QQ 历史。

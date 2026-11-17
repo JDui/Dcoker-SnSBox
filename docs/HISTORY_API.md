@@ -1,6 +1,6 @@
 # 只读既有历史：接口与接线
 
-状态：2026-11-17 增加 QQ 独立 JSON 导入；已实现读取器、独立索引与网页。当前真实 WS 消息尚未读取，不将目录识别或合成夹具当作真实历史兼容验收。
+状态：2026-11-17 增加 QQ 独立 JSON 与解密后转换产物导入；已实现读取器、独立索引与网页。当前真实 WS 消息尚未读取，不将目录识别或合成夹具当作真实历史兼容验收。
 
 ## 先行可行性结论（2026-11-16，旧 NAS）
 
@@ -22,7 +22,9 @@
 
 QQ 来源显式使用 `format:"chatlog-keeper-qq-json"`，`profilePath` 指向导出完成的独立 `qq_messages.json` 文件，需 `confirmedConsistentSnapshot:true` 确认其独立完成条件。这里不使用数据库密钥或微信 `allowPlaintext` 开关；省略 format 的 QQ 官方加密资料仍不支持直接读取。导出只提供部分文字，正文有上游截断、时间范围与附件缺失限制，始终标为 partial；上限为 64 MiB 文件、10 万条记录。参考 [QQ 现场记录](QQ_HISTORY_READINESS.md) 和 [部署说明](../deploy/HISTORY_SETUP.md)。
 
-配置、只读挂载与受保护密钥权限示例见 [部署说明](../deploy/HISTORY_SETUP.md)。明文导出需要显式 allowPlaintext；这不是加密库自动解密开关。未配置时保留阻塞的微信/QQ 来源，不搜索其他个人目录。
+已解密 QQNT 独立 SQLite 可用 [离线转换工具](../tools/qq-decrypted/README.md) 生成 `snsbox-qq-decrypted-v1` 来源；普通文字不再按上游摘要截断，单条正文超过 64 KiB 或无法解码时保留未知占位。卡片、引用和媒体仍非完整还原，来源保持 partial。工具不取钥、不连接 QQ、不直接打开活跃资料。
+
+配置、只读挂载与受保护密钥权限示例见 [部署说明](../deploy/HISTORY_SETUP.md)。微信明文资料需要显式 allowPlaintext；这不是加密库自动解密开关。未配置时保留阻塞的微信/QQ 来源，不搜索其他个人目录。
 
 ## HTTP 合同（前缀 /api/v1，Cookie 鉴权）
 
@@ -31,6 +33,7 @@ QQ 来源显式使用 `format:"chatlog-keeper-qq-json"`，`profilePath` 指向�
 - `GET /history/sources/{sourceId}/conversations?cursor=&limit=50&query=`：返回 `{items:[HistoryConversation],nextCursor}`。
 - `GET /history/sources/{sourceId}/conversations/{conversationId}/messages?cursor=&limit=50`：返回同消息段模型的只读历史，最新到最旧分页。
 - `GET /history/sources/{sourceId}/messages?query=&cursor=&limit=50`：只检索该来源已有派生历史，绝不混入其他账号/平台。
+- `GET /history/sources/{sourceId}/conversations/{conversationId}/messages/{messageId}/context?generation=...&limit=50`：按当前索引代次读取目标前后约半页消息，不逐页遍历客户端缓存。返回常规分页字段及 `anchorMessageId`、`hasNewer`；消息仍新到旧排序，`nextCursor` 可用于原会话消息接口继续读更早记录。`hasNewer` 表示此上下文窗口前有较新记录，页面可返回最新页。消息不存在或属于其他来源/会话返回 404，代次不符返回 409 `history_changed`，limit 为 1–200。
 
 `HistorySource` 字段：`id,platform,displayName,kind:"legacy-readonly",format,canRefresh,status,reason,readOnly:true,sendAllowed:false,capturedAt,indexedAt,consistency,generation,conversationCount,messageCount,partial`。status 区分 `not_loaded,refreshing,ready,partial,keys_required,snapshot_required,unsupported,error`；未取得的时间、代次和数量用 null。`consistency` 为 `operator-confirmed-copy`、`operator-confirmed-export` 或 `unavailable`，表示操作者确认的来源条件，不承诺跨库或全设备历史完整。前端优先遵守显式 `canRefresh`，不按 QQ 平台一律禁用或启用；刷新请求仍由服务端重新检查条件。
 

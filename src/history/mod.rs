@@ -1,6 +1,7 @@
 //! Read-only legacy history. Official sources never receive SQLite connections.
 //! The maintained profile reader works on its own private copy; our only writes
 //! are to the separate SnSBox index. Errors deliberately discard upstream details.
+mod context;
 mod qq_export;
 mod reader;
 #[cfg(test)]
@@ -55,7 +56,14 @@ impl SourceConfig {
         })
     }
     fn is_qq_export(&self) -> bool {
-        self.platform == "qq" && self.format_name() == "chatlog-keeper-qq-json"
+        self.platform == "qq"
+            && matches!(
+                self.format_name(),
+                "chatlog-keeper-qq-json" | "snsbox-qq-decrypted-v1"
+            )
+    }
+    fn is_qq_decrypted(&self) -> bool {
+        self.platform == "qq" && self.format_name() == "snsbox-qq-decrypted-v1"
     }
 }
 
@@ -313,7 +321,9 @@ impl HistoryService {
                     status.conversation_count = Some(row.get("conversation_count"));
                     status.message_count = Some(row.get("message_count"));
                     status.status = if status.partial { "partial" } else { "ready" }.into();
-                    status.reason = if config.is_qq_export() {
+                    status.reason = if config.is_qq_decrypted() {
+                        "展示上次转换的 QQ 明文文字索引；普通长文本保留，超限或未知记录显示占位，附件未导入，刷新才重新读取导出"
+                    } else if config.is_qq_export() {
                         "展示上次导入的 QQ 文字索引；上游导出有时间范围及正文截断，附件未导入，刷新才重新读取导出"
                     } else {
                         "展示上次建立的本地只读索引；刷新才重新读取已配置副本"
@@ -442,7 +452,9 @@ impl HistoryService {
             self.index_root.parent().expect("index is under data"),
         );
         status.status = if snapshot.partial { "partial" } else { "ready" }.into();
-        status.reason = if config.is_qq_export() {
+        status.reason = if config.is_qq_decrypted() {
+            "已导入 QQ 明文转换记录；普通文字未按摘要截断，超限或未知记录保留占位，附件未导入，仅搜索当前索引"
+        } else if config.is_qq_export() {
             "已导入 QQ 导出中的文字记录；上游导出有时间范围及正文截断，附件未导入，仅搜索当前索引"
         } else if snapshot.partial {
             "部分数据库、类型或超出读取上限的记录未纳入；只能搜索当前本地索引"
@@ -543,7 +555,7 @@ fn initial_status(config: &SourceConfig, active: Option<&Path>, data: &Path) -> 
     let blocked = if config.platform == "qq" && !config.is_qq_export() {
         Some((
             "unsupported",
-            "请配置独立的 chatlog-keeper QQ JSON 导出；此读取器不能直接解密官方 QQNT 数据库",
+            "请配置独立的 QQ JSON 导出或已解密数据库转换产物；此读取器不能直接解密官方 QQNT 数据库",
         ))
     } else if config.platform == "wechat" && config.format_name() != "wechat-profile" {
         Some(("unsupported", "该平台的历史导出格式不受支持"))
@@ -726,6 +738,10 @@ pub fn routes<S: Clone + Send + Sync + 'static>(service: Arc<HistoryService>) ->
             get(messages),
         )
         .route("/history/sources/{source}/messages", get(search))
+        .route(
+            "/history/sources/{source}/conversations/{conversation}/messages/{message}/context",
+            get(context::context),
+        )
         .with_state(service)
 }
 async fn sources(State(service): State<Arc<HistoryService>>) -> Json<Value> {

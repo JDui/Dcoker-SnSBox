@@ -36,6 +36,10 @@ struct Record {
     sender_qq: Option<u64>,
     #[serde(default)]
     is_self: Option<bool>,
+    #[serde(default)]
+    decode_status: Option<String>,
+    #[serde(default)]
+    decode_error_code: Option<String>,
     // Other upstream fields (including attachment paths/URLs and wxid_hash)
     // are deliberately discarded, never fetched, executed or used as IDs.
 }
@@ -67,7 +71,7 @@ impl<'de> Deserialize<'de> for Records {
 fn invalid() -> HistoryError {
     blocked(
         "history_unsupported",
-        "QQ 导出格式不匹配、字段无效或超过限制；请使用固定版本 chatlog-keeper 的 qq_messages.json（最多 64 MiB / 10 万条）",
+        "QQ 导出格式不匹配、字段无效或超过限制；请使用受支持的 QQ JSON 导出或明文转换产物（最多 64 MiB / 10 万条）",
     )
 }
 fn changed() -> HistoryError {
@@ -210,7 +214,22 @@ pub(super) fn read(config: &SourceConfig) -> Result<Snapshot, HistoryError> {
                     }
                 })
         };
-        let segment = if row.content.is_empty() {
+        let unreadable =
+            config.is_qq_decrypted() && row.decode_status.as_deref() == Some("unreadable");
+        if config.is_qq_decrypted()
+            && (!matches!(row.decode_status.as_deref(), Some("decoded" | "unreadable"))
+                || (unreadable && !row.content.is_empty()))
+        {
+            return Err(invalid());
+        }
+        let segment = if unreadable {
+            let hint = match row.decode_error_code.as_deref() {
+                Some("text_limit") => "此条文字超过转换上限，未截断导入；请查阅原独立副本",
+                Some("body_limit") => "此条消息体超过转换上限；附件尚未导入",
+                _ => "此条消息无法由当前解析器展开；记录已保留，附件尚未导入",
+            };
+            json!({"type":"unknown","text":hint})
+        } else if row.content.is_empty() {
             json!({"type":"unknown","text":"此条导出没有可用文字；附件尚未导入"})
         } else {
             json!({"type":"text","text":row.content})
