@@ -85,3 +85,33 @@ python3 tools/wechat-key-import/test_prepare.py \
 ```
 
 组件检查与主线程 `history refresh` HTTP 验收分开记录；不运行全套应用测试。最大剩余不确定性仍是实际微信构建的内存表示、主机权限、可用缓存以及独立一致性来源，不是 JSON 格式。
+
+## 本轮实际结果与关机交接
+
+2026-11-16 收尾状态：
+
+- Rust fixture 已编译成功。最终夹具只含合成 contact/session/message 三库。
+- password-mode 与 raw-key-mode 均由 `prepare.py import-cache` 逐库验证并转换，随后实际 `wechat-profile 2.5.0` 的 `KeyFile::load` + `ProfileReader` 成功解密查询：各 1 个会话、3 条消息，联系人非空；不是仅验证 JSON 字段。
+- 5 项定向组件检查全部通过（1.302 秒，不含已完成的编译）：两种模式真实读取器消费；错误缓存/不安全权限拒绝；源目录/链接/覆盖边界；模拟内核拒绝且无回退；仅对专门创建的合成 Python 子进程被动扫描，检查其无 tracer、未停驻并正常退出。未运行真实微信进程取钥。
+- 首轮失败包括输出同级路径误拒、初始合成会话为空，以及排查时产生过无效字段命名的中间 KeyFile。均已修正；`round1` 不作为交付或验收依据。不要把主线程针对 `round1` 得到的 `keys_required` 当成最终 `round2` 结果。
+- 截至 2026-11-16 收尾，主线程 HTTP/history refresh 集成验收尚未确认；2026-11-17 的续验结果见下文。真实资料、真实密钥、NAS 主机权限和实际微信版本仍未验收。
+- 格式化工具 `cargo-fmt` 在当前构建镜像未安装，未为此下载组件；没有扩大全套测试，没有提交或推送。
+
+保留的交接卷为 `snsbox-key-preparation-fixtures`。以卷根挂载 `/fixtures` 时，最终路径是：
+
+| 内容 | 卷内路径 |
+| --- | --- |
+| password-mode 独立合成资料 | `/fixtures/round2/synthetic-password` |
+| 转换所得 password-mode KeyFile | `/fixtures/round2/password.keys.json` |
+| raw-key-mode 独立合成资料 | `/fixtures/round2/synthetic-raw` |
+| 转换所得 raw-key-mode KeyFile | `/fixtures/round2/raw.keys.json` |
+
+`round2` 已归属 `10001:10001`；私有父目录 `0700`，密钥 `0600`。卷内还保留合成输入缓存及不可用于验收的 `round1` 中间结果，未清理。**不要在主线程验收完成前删除该卷。**
+
+本线程临时检查/构建容器均以 `--rm` 启动且已结束，没有需保活的临时容器。本线程新建的 `snsbox-key-tools-target` 是可再生 Rust 构建缓存卷，可由主线程决定后续清理；`snsbox-key-preparation-fixtures` 是交接资料卷，当前保留。共享的 `snsbox-cargo-cache` 不属于本轮清理范围。现用 WS、`snsbox-mvp`、`snsbox-mvp-wechat` 均未由本轮工具修改或重建。
+
+### 2026-11-17 HTTP 续验
+
+主线程执行 `node tools/history-smoke.mjs` 成功：使用 round2 合成资料及转换所得 KeyFile，经 HTTP history refresh 返回来源 `ready`，会话数 1、消息数 3、搜索结果数 3。这补齐了转换工具 → KeyFile → 主服务 HTTP 历史读取的集成证据；没有重跑旧 round1 失败夹具或重复组件测试。
+
+本次通过仍仅针对合成资料，不表示已经取得真实密钥、读取现用 WS 历史，或支持用户实际微信构建。下一项最大不确定性仍是可用的真实密钥与独立一致性来源；不因此扩展现用进程操作，也不把 SMB 文件访问当作 NAS 内存读取能力。

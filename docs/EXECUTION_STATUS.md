@@ -139,3 +139,10 @@ P2/P3 工程完成不代表原路线 M1/M3 的双平台实用验收完成。
 - 主线程新增 `tools/history-smoke.mjs`，用只读合成输入卷，经副本工具接入现有 `snsbox:0.1.0`；首次 HTTP refresh 返回 `keys_required`，尚未定位。临时 HTTP 测试容器和自建卷已由脚本清理。此失败与夹具会话问题均需下次优先排查，不应弱化密钥权限或认证检查来绕过。
 - 下次继续：确认 HTTP 挂载的 KeyFile UID/权限、账号绑定与逐库认证，使用已修正的 round2 完成 HTTP 读取验证。合成卷 `snsbox-key-preparation-fixtures` 暂保留；round2 两类资料和对应 KeyFile 归属 10001:10001，父目录 0700、密钥 0600；round1 为旧夹具。测试脚本已指向 round2，但因用户要求关机收尾没有重跑 HTTP。新建 fixture 目录避免覆盖。
 - 本轮未更改应用运行代码，未重建/替换运行镜像，未发布镜像或部署 NAS。当前本机两个 MVP 容器保留；未停止或改写现用 WS。真实数据库密钥、真实一致性来源和真实历史读取仍未取得，用户暂不扫码。
+
+## 第五轮：恢复 HTTP 验收及准备物部署（2026-11-17）
+
+- 在干净应用源码和既有 `snsbox:0.1.0` AMD64 镜像上执行 `node tools/history-smoke.mjs`，使用 round2 合成 password-mode 资料及已转换 KeyFile，经副本工具生成输入后实际调用 HTTP refresh。结果为 `ready`、一个会话、三条消息、三条搜索结果，且 `readOnly:true` / `sendAllowed:false`。测试容器与新建临时卷已自动清理，原合成夹具卷只读使用。
+- 旧 round1 的 `keys_required` 不再阻挡该链路；本次没有弱化密钥权限或认证检查。raw-key 模式此前已经由同版本 ProfileReader 验证，本次不无故重复全套组件检查。
+- HTTP 脚本在新建合成卷中明确设置 UID 10001 和私有权限；生成 Compose 在不同宿主上的直接使用仍单独检查，不能用脚本内的路径重写代替部署配置验收。
+- 恢复本机现有独立 MVP Compose 的 `snsbox` / `wechat` 服务，不触发扫码，不读取现用 WS；未替换镜像或挂载 X:。真实数据库密钥与一致性来源仍缺失，保持明确限制。

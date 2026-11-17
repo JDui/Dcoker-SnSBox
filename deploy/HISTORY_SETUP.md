@@ -4,7 +4,7 @@
 
 ## 准备来源
 
-可执行准备工具见 [副本准备](../docs/HISTORY_SNAPSHOT_PREPARATION.md) 和 [密钥转换](../docs/WECHAT_KEY_PREPARATION.md)。2026-11-16 收尾时副本专项检查已通过，但转换后接入主服务的 HTTP 集成仍返回 `keys_required`，尚未完成联合验收；不要将这些工具标为真实历史读取成功。
+可执行准备工具见 [副本准备](../docs/HISTORY_SNAPSHOT_PREPARATION.md) 和 [密钥转换](../docs/WECHAT_KEY_PREPARATION.md)。2026-11-17 使用修正后的 round2 合成加密资料通过现有镜像的 HTTP 联合检查：一个会话、三条消息和三条搜索结果，来源状态 `ready`。这验证了副本与转换密钥的读取链路；不是用户真实历史验收，也不代表任意宿主的挂载权限均已正确设置。
 
 仅有 Windows SMB 映射时，可先枚举服务器已有的 Previous Versions，无需 SSH，也不会创建快照或打开数据库：
 
