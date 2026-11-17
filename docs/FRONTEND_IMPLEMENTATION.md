@@ -94,7 +94,7 @@ npm run dev
 - 连续打开/关闭/重新打开弹窗后仍可交互；运行中切换 reduced-motion 后计算样式为 `animation: none`、`transition-duration: 0s`。实色选项下计算 `backdrop-filter: none`。
 - 独立触摸上下文执行菜单取消置顶、返回、切换深色与 QQ 筛选；菜单命中区实测 44×44px，发送按钮高度 44px，无文档横向溢出。
 - rAF 原始数据见 `web/test-results/rc-ui-motion-metrics.json`：24 段采样，中位约 8.3ms、P95 约 8.4ms、最大约 8–9ms。仅表示当前 headless 环境在筛选切换后的短采样，不承诺真实屏幕/NAS/iPad 帧率；后台恢复性能与全路径长时间性能未测。
-- 自动检查包括根界面 CSS 200% 缩放下弹窗可访问；不把该模拟等同于真实浏览器 200% 缩放验收。实际浏览器放大与所有长文本/语言组合保持待验证。
+- 早期检查只包括根界面 CSS 200% 缩放，未将其当作浏览器缩放；2026-11-17 已另补下方原生 Edge 200% 检查。所有长文本/语言组合与真机仍未完整覆盖。
 - 新截图均为合成账号和内容，位于忽略提交的 `web/test-results/`：`rc-desktop-light.png`、`rc-desktop-dark.png`、`rc-mobile-dark-touch.png`、`rc-settings-dark-solid.png`、`rc-accent-light-violet.png`、`rc-accent-dark-rose.png`、`conversation-local-state-desktop.png`、`conversation-local-state-mobile.png`、`account-tasks-desktop-synthetic.png`、`account-tasks-mobile-synthetic.png`。
 
 最终视觉以最新 `rc-*` 截图为准；账号任务截图用于合成任务行为证据。最后的中性遮罩/阴影调整后，仅复验受影响的两项 RC 主题与交互检查，未扩大测试范围。
@@ -114,3 +114,29 @@ npm run dev
 必要检查：`npm run build` 通过；仅运行 `history-workspace.spec.ts` 与 `account-workflow.spec.ts`，2 项通过（18.0 秒），没有扩大无关套件。新增历史检查覆盖阻塞时不读正文、CSRF、异步刷新、分页搜索、跨源数据过滤、切换来源清理、409 代次恢复、只读时无输入/上传/修改入口，且所有修改请求仅为来源刷新。账号检查补验 success + 已过期旧期限不再展示过期警告、终态不轮询。
 
 已查看 1440×1000 桌面与 390×844 手机合成截图，无横向溢出；证据为忽略目录中的 `history-blocked-desktop-synthetic.png`、`history-ready-desktop-synthetic.png`、`history-ready-mobile-synthetic.png`。当前真实 WS 缺一致性副本与密钥，未读取其聊天内容；真实来源兼容、历史完整、媒体展开与 iPad 真机仍未验收。下一项最大不确定性是授权独立来源及匹配密钥的取得，界面完成不改变该状态。
+
+## 窗口比例与浏览器缩放修复（2026-11-17）
+
+先复现再修改：原布局只按宽度收纳，固定高度的品牌、筛选、聊天头与输入区在矮窗口中耗尽空间。合成聊天的具体变化：
+
+| 有效 CSS 视口 | 修复前 | 修复后 |
+| --- | --- | --- |
+| 640×360 | 消息区约 2.4px | 消息区 148px，输入区约 100px |
+| 800×400 | 会话列表 11px，消息区 37px | 列表和消息区均 188px |
+
+低高度规则减少重复品牌/页脚占位，收紧顶部控制间距，把输入区改为文字与操作两行布局；保留正常字号、44px 主要触控命中、消息身份和菜单名称。多行警告或附件需要更多空间时，输入区自身有界滚动。窄列标题、媒体提示、弹窗说明与登录表单补上收缩/换行边界，没有以统一缩小字体或禁用缩放解决问题。
+
+历史侧栏增加通用滚动兜底与列表最小可用高度；多来源/长条件说明在 600px 高度仍可滚达列表。宽矮空状态采用自动外边距居中，内容过长时从顶部自然滚动，避免负向居中裁切。设置弹窗标题/关闭入口保持可见，正文独立滚动。灰白/灰暗底色、可设置重点色、语义色与纯图标平台角标保持既有规范；本次未增加装饰动效。
+
+仅新增运行 `layout-reflow.spec.ts`，3 项聚焦检查通过（9.1 秒）；`npm run build` 通过。覆盖 640×360、800×400、320×568，矮窗口历史空状态及 800×600 多来源长说明；检查列表/消息实际高度、关键按钮视口内可达、模态正文可滚动且无横向溢出。数据均为合成内容，不访问真实资料或平台接口，没有运行无关全套测试。
+
+原生浏览器缩放使用隔离临时 Edge profile 的 [Chromium HostZoomMap 偏好](https://chromium.googlesource.com/chromium/src/+/lkgr/chrome/browser/ui/zoom/chrome_zoom_level_prefs.cc)，没有操作个人浏览器配置、设置 CSS zoom/transform 或通过缩小模拟视口代替缩放。同一 1440×900 浏览器窗口实测：
+
+| 浏览器缩放 | 内容 CSS 视口 | DPR | visualViewport.scale | 根 CSS zoom / transform |
+| --- | --- | --- | --- | --- |
+| 100% | 1416×808 | 1 | 1 | 1 / none |
+| 200% | 708×404 | 2 | 1 | 1 / none |
+
+该路径验证了登录表单、聊天输入/返回、设置关闭及只读历史；关键按钮另以元素视口断言核对。原始记录为 `web/test-results/layout-browser-zoom-metrics.json`。Playwright 默认截图在原生缩放下出现裁切，已改用 CDP 捕获完整内容，并断言图片宽度等于 CSS 宽度乘 DPR；最终聊天截图为完整 1416×808，不能使用早期裁切截图作可见性证据。
+
+已查看忽略目录中的合成截图：`layout-fixed-chat-640x360.png`、`layout-fixed-chat-800x400.png`、`layout-browser-200-chat.png`、`layout-browser-200-history.png`。主线程另独立 CUA 复验两个低高度视口、设置与历史，实施线程不提供独立自评分。iPad/WebKit 真机、软键盘、系统文字放大与所有语言组合仍未验收；下一项最大不确定性是这些真机浏览器与键盘的视口行为，Edge 结果不能替代。

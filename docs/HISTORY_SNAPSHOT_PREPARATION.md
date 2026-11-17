@@ -2,7 +2,13 @@
 
 日期：2026-11-17。实现文件：[prepare.py](../tools/history-snapshot/prepare.py) 与 [stage-compose.py](../tools/history-snapshot/stage-compose.py)，Python 3.10+ 标准库；不改变 Rust 主服务、不引入新运行时依赖。工具不会创建 NAS 快照、停止微信、提取密钥或连接输入端 SQLite。
 
-当前只有 SMB，没有 SSH 或快照接口信息。2026-11-17 用户更换 NAS，当前活跃 config 为 `X:\Docker\selkies\config`；旧 `X:\Docker\wechat\config` 的历史版本探测未得到可用快照，该结果不代表新 NAS 的能力。新路径目前仅在本次路径迁移检查中确认目录元数据可达。本工具已完成可执行准备链路，但不会因此把活跃目录热复制并标为一致。真实源仍缺独立一致来源和匹配密钥，尚未读取其记录。
+当前只有 SMB，没有 SSH 或快照接口信息。2026-11-17 用户更换 NAS，当前活跃 config 为 `X:\Docker\selkies\config`；路径迁移时先仅确认目录元数据可达，随后已对新路径独立执行只读 SMB Previous Versions 枚举，实际结果见下文。旧 `X:\Docker\wechat\config` 的探测证据保留原日期，不代替新 NAS 检查。本工具已完成可执行准备链路，但不会因此把活跃目录热复制并标为一致。真实源仍缺独立一致来源和匹配密钥，尚未读取其记录。
+
+### 新 NAS 只读枚举结果（2026-11-17）
+
+审阅并执行 `deploy/probe-smb-snapshots.ps1 -Path 'X:\Docker\selkies\config'`：使用既有 SMB 连接，以 `GENERIC_READ`、共享 READ/WRITE/DELETE、`OPEN_EXISTING` 打开目录句柄，仅调用 `FSCTL_SRV_ENUMERATE_SNAPSHOTS` 查询已有版本。没有遍历资料、读取数据库、复制文件、创建快照或请求源写权限。
+
+本次返回 `status: unsupported`、`nativeError: 1`、`snapshots: []`、`readOnly: true`、`createsSnapshot: false`、`confirmedConsistentSnapshot: false`。这表示新共享未通过本次标准 SMB 枚举提供 Previous Versions，**不证明 NAS 底层没有快照功能，也不等于成功枚举后确认快照总数为零**。没有据此启用热复制或自动确认一致性。该结果与 2026-11-16 旧 NAS 的同类返回是两次独立证据。
 
 ## 路线判断
 
