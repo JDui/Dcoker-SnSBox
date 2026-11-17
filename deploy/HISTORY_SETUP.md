@@ -6,6 +6,8 @@
 
 可执行准备工具见 [副本准备](../docs/HISTORY_SNAPSHOT_PREPARATION.md) 和 [密钥转换](../docs/WECHAT_KEY_PREPARATION.md)。2026-11-17 使用修正后的 round2 合成加密资料通过现有镜像的 HTTP 联合检查：一个会话、三条消息和三条搜索结果，来源状态 `ready`。这验证了副本与转换密钥的读取链路；不是用户真实历史验收，也不代表任意宿主的挂载权限均已正确设置。
 
+如果准备 bundle 的用户不是服务 UID 10001，或使用 Windows Docker Desktop，不要直接放宽密钥权限。使用 `tools/history-snapshot/stage-compose.py` 将已准备的独立 bundle 复制到新建的本地 Linux 私有卷，生成可直接叠加的 Compose；详见副本准备文档。此工具不修改输入文件，不运行远端 Docker，不创建源端快照。2026-11-17 已通过生成 Compose 的实际 HTTP 检查，没有手工补 chown 或重写清单路径。
+
 仅有 Windows SMB 映射时，可先枚举服务器已有的 Previous Versions，无需 SSH，也不会创建快照或打开数据库：
 
 ```powershell

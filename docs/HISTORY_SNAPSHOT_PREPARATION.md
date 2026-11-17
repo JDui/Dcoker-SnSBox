@@ -1,6 +1,6 @@
 # 既有历史的独立副本准备
 
-日期：2026-11-16。实现文件：[prepare.py](../tools/history-snapshot/prepare.py)，Python 3.10+ 标准库；不改变 Rust 主服务、不引入新运行时依赖。工具不会创建 NAS 快照、停止微信、提取密钥或连接输入端 SQLite。
+日期：2026-11-17。实现文件：[prepare.py](../tools/history-snapshot/prepare.py) 与 [stage-compose.py](../tools/history-snapshot/stage-compose.py)，Python 3.10+ 标准库；不改变 Rust 主服务、不引入新运行时依赖。工具不会创建 NAS 快照、停止微信、提取密钥或连接输入端 SQLite。
 
 当前只有 SMB，原生历史版本探测未得到可用快照；没有 SSH 或快照接口信息。本工具已完成可执行准备链路，但不会因此把活跃目录热复制并标为一致。真实源仍缺独立一致来源和匹配密钥，尚未读取其记录。
 
@@ -55,14 +55,21 @@ python tools/history-snapshot/prepare.py prepare "Y:\KnownReadOnlySnapshot\confi
 
 `readyForReader:true` 只表示来源声明和必要文件条件足够发起读取，**不代表密钥正确、数据库可解密、schema 兼容或真实历史验收成功**。加密库的验证留给固定的 `wechat-profile` 读取器。不要在工具参数、源码或文档里写数据库密码/密钥。
 
-生成后先检查本地私有报告，确认没有 `INCOMPLETE.json`，再使用所生成的 overlay；它不改账号配置，不自动启动服务：
+## 交给 UID 10001 服务运行
+
+准备完成、没有 `INCOMPLETE.json` 后，Windows bind 或 root 生成的 `0700/0600` bundle 推荐先暂存到自有 Linux 卷。需要已有本地 `snsbox:0.1.0` 镜像；工具不拉镜像、不启动主服务：
 
 ```powershell
-docker compose -f compose.yaml -f private/history-prepared/compose.history.yaml config --quiet
-docker compose -f compose.yaml -f private/history-prepared/compose.history.yaml up -d
+python tools/history-snapshot/stage-compose.py private/history-prepared --active-root "D:\ProtectedLive" --output private/history-deployment
+docker compose -f compose.yaml -f private/history-deployment/compose.history.yaml config --quiet
+docker compose -f compose.yaml -f private/history-deployment/compose.history.yaml up -d
 ```
 
-已有网络登录 overlay 时继续叠加该文件，不删除现有账号配置。生成清单只包含本次选择的一个历史来源；多来源合并需保留各自隔离 ID、独立资料与真实范围。网页“既有历史”点击读取后，由后端执行实际解密/索引验证。
+把保护路径占位改为所有已知活跃根，可重复 `--active-root`。已有网络登录 overlay 时继续叠加该文件，不叠加旧的 history overlay，不删除账号配置。网页“既有历史”点击读取后才执行实际解密/索引验证。
+
+暂存只读读取完成 bundle 引用的 profile 和明确 key 文件，通过本地 Docker stdin 复制 DB/WAL、来源清单和密钥到两个全新卷；不复制 SHM，不修改输入权限。一次性 root 容器仅初始化新卷，保留账号目录名及原一致性声明；复制后目录 `0700`、文件 `0600`、所有者 `10001:10001`。主服务仍为 UID 10001，输入卷只读，scratch 独立可写；所有挂载禁用 Docker 空卷复制，避免初始化权限被镜像目录权限覆盖。没有降低 KeyFile 保护或宣称已验证密钥。
+
+工具拒绝远程 Docker context、已有输出/目标卷、链接及特殊文件；复制或权限检查失败不发布最终 Compose，保留 `INCOMPLETE.json`。生成的 `deployment.json` 记录两个卷名，卷为 external，不会被普通 Compose down 删除；更换来源要生成新部署目录。卷内含私有资料，保留与清理应按实际部署处理。直接 bind 的原 overlay 仍保留，但仅适用于宿主已保证 UID 10001 可读、密钥权限符合要求的环境。
 
 ## 明文兼容导出：只在新副本恢复 WAL
 
@@ -86,5 +93,7 @@ python tools/history-snapshot/prepare.py prepare /mnt/independent-export/account
 补充定向检查已完成：生成的 Compose 经 `create` 后，容器挂载目标保留原始 `${…}` 与中文目录名、bind 为只读；检查容器没有启动。独立复制脚本运行的 CLI 也通过，未确认副本返回退出码 3，生成的来源仍未确认一致性，标准输出不含源路径。此后按关机要求停止新增测试/构建。
 
 主线程另负责真正兼容 SQLCipher 的合成 profile、密钥格式转换和现有镜像 HTTP 集成检查，结果见 [执行记录](EXECUTION_STATUS.md)，本文件不提前宣称其结果。没有运行无关全套应用测试，没有增加手工 SHA 验收。
+
+2026-11-17：新增 `python tools/history-snapshot/test_stage_compose.py` 聚焦检查，覆盖宽权限合成 key 输入不变、Linux 卷内 `10001:10001/0600`、真实 UID 10001 读取和 scratch 写入、历史卷拒写、已有输出/链接/途中失败不发布；Compose HTTP 使用生成配置的实际验收由主线程单独记录。该检查只使用本地临时合成资料，不访问 X:，不重复运行 history-smoke。
 
 下一项最大不确定性仍是得到当前部署可访问的真实一致性来源及授权密钥。SMB 不提供已有历史版本且没有其他接口时，当前工具无法凭空生成该来源；保持阻塞状态，同时交付可在来源就绪后直接执行的准备和导入链路。
