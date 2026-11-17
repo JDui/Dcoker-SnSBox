@@ -1,6 +1,19 @@
-# 既有微信历史：独立只读来源
+# 既有微信 / QQ 历史：独立只读来源
 
-历史读取使用固定 `wechat-profile = 2.5.0`，复用其 SQLCipher 和官方 Linux schema 读取器。它不需要登录网络上游，不会注册或接管 profile。只有独立且经过一致性确认的资料才能建立索引；仅有活跃 WS 文件共享路径时，页面会显示缺少来源条件。当前不解密官方 QQNT 历史。
+微信历史读取使用固定 `wechat-profile = 2.5.0`，复用其 SQLCipher 和官方 Linux schema 读取器。它不需要登录网络上游，不会注册或接管 profile。只有独立且经过一致性确认的资料才能建立索引；仅有活跃 WS 文件共享路径时，页面会显示缺少来源条件。QQ 支持下述已完成的 chatlog-keeper JSON 导出，不直接解密官方 QQNT 数据库。
+
+## QQ：导入现成 JSON 导出
+
+使用固定 [chatlog-keeper d2feeec](https://github.com/labazhou2024/chatlog-keeper/tree/d2feeec09a192af9a4738547b8543cf096386464) 导出的 `qq_messages.json` 数组。SnSBox 只读取已经完成、独立保存的导出文件，不运行上游 CLI、不读取登录凭据、不发起 QQ 登录或密钥请求。不能将活跃 `nt_msg.db` 重命名为 JSON；当前没有替用户取得真实导出或密钥。
+
+1. 将已有导出放在忽略的 `private/qq-history/qq_messages.json`，与整个活跃 `X:\Docker\selkies`、旧 `X:\Docker\wechat` 和 SnSBox data 隔离。只挂载这个私密导出目录，不挂载整个 NAS config。Linux 上让 UID 10001 可读，建议目录 0700、文件 0600；不改动原客户端资料权限。
+2. 从 [QQ 配置示例](history-qq-export.example.json) 复制为 `private/history-sources.json`；确认导出完成且不会继续写入后，填写真实 `capturedAt`，将 `confirmedConsistentSnapshot` 改为 `true`。`format` 必须为 `chatlog-keeper-qq-json`，`profilePath` 是容器内 JSON 文件路径；不需要 `keysFile` 或 `allowPlaintext`。已有微信来源时向同一个配置数组追加 QQ 条目，保留微信原配置。
+3. 复制 [QQ Compose overlay](compose.history-qq-export.example.yaml)，叠加到现有 Compose 后启动已包含该功能的镜像。微信与 QQ 共用同一个 `SNSBOX_HISTORY_SOURCES_FILE`；同时启用时合并只读挂载，不能用第二份配置覆盖第一份。现有 `history-snapshot/prepare.py` 和 `stage-compose.py` 面向微信数据库 bundle，不用于这个 JSON 文件。
+4. 在“既有历史”选择 QQ 来源并读取。会话、消息分页、搜索和重新读取走现有历史 API，始终禁止发送。未确认来源仍被拒绝；读取错误不会替换已有索引。
+
+上游实际字段：`account_id`、`conversation_id`（或 `chat_uid`）、`conversation_type: direct/group`（或 `chat_kind: friend/group`）、`ts`（秒级数字）、`content`、`sender_name`、`sender_qq`（整数）、可选 `is_self`。账号、会话类型、会话编号共同隔离；同秒重复 `source_offset` 不会丢记录。非数字账号标识时，上游 `is_self:false` 不足以确定方向，因此可能显示未知方向。
+
+当前限制：单文件最多 64 MiB、10 万条，超限整批拒绝；只索引导出文字，忽略附件路径/URL，不下载媒体，不执行正文 HTML。固定上游 `read_recent_dicts()` 会按时间窗口过滤并将正文截为 1500 字符，缺少稳定消息 ID，故成功状态始终为 `partial`，重启也保留限制说明。本地 ID 用导出行号保持同秒多条记录；改写或重新导出后的 ID 不用于跨导出归并。导出原文和索引均含明文私人资料，不进入 Git。
 
 ## 准备来源
 

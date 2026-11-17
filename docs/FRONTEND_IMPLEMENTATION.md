@@ -140,3 +140,15 @@ npm run dev
 该路径验证了登录表单、聊天输入/返回、设置关闭及只读历史；关键按钮另以元素视口断言核对。原始记录为 `web/test-results/layout-browser-zoom-metrics.json`。Playwright 默认截图在原生缩放下出现裁切，已改用 CDP 捕获完整内容，并断言图片宽度等于 CSS 宽度乘 DPR；最终聊天截图为完整 1416×808，不能使用早期裁切截图作可见性证据。
 
 已查看忽略目录中的合成截图：`layout-fixed-chat-640x360.png`、`layout-fixed-chat-800x400.png`、`layout-browser-200-chat.png`、`layout-browser-200-history.png`。主线程另独立 CUA 复验两个低高度视口、设置与历史，实施线程不提供独立自评分。iPad/WebKit 真机、软键盘、系统文字放大与所有语言组合仍未验收；下一项最大不确定性是这些真机浏览器与键盘的视口行为，Edge 结果不能替代。
+
+## QQ 只读历史的前端准备（2026-11-17）
+
+移除历史页两处平台假设：不再仅因 `platform: qq` 禁用刷新；边界说明不再一律宣称 QQ 资料无法解密，具体缺口直接显示服务端 `reason`。索引可读仍要求 ready/partial 或保留旧代次的 refreshing，并提供 generation。没有用界面改动覆盖后端阻塞。
+
+沿用现有 `/history/sources`、刷新、会话、消息和搜索接口；同步后端新增的来源元数据 `format` 与 `canRefresh`，消息字段不变。显式 `canRefresh:false` 始终禁用刷新，不能用可读 status 自行覆盖；旧响应缺字段时才按原 status 兼容，unsupported 默认禁用。`chatlog-keeper-qq-json` 来源补充“仅导出文字、正文可能截断、附件及完整历史未验收”的说明，不声称官方库已解密。
+
+查询缓存与切换恢复包含平台；会话、正文、搜索结果按 sourceId、platform 与 `history:{sourceId}` 账号命名空间过滤。QQ 的企鹅头像角标只含图标及无障碍名称，普通平台标签仍可显示 QQ 文字。只读聊天继续隐藏发送、上传与会话修改菜单。
+
+通用历史专项检查通过；QQ 专项最新单项复验通过（3.2 秒），生产构建通过，未运行无关套件。合成 QQ 场景验证缺密钥/partial、显式 canRefresh:false 对不可读与可读状态均优先生效、QQ 标识、截断范围提示、搜索、跨平台/账号记录拒绝显示及 640×360 只读布局；全部修改请求仅为来源刷新，未发起登录或真实消息操作。已查看合成截图 `web/test-results/history-qq-readonly-synthetic-640x360.png`，本轮没有访问 X: 或真实资料。
+
+该结果仅证明前端能消费既有合同中的 QQ 只读记录。真实 QQNT 的资料布局、密钥获取、解密和历史覆盖仍待后端与现场证据，不能将合成响应当作用户 QQ 历史已经读取成功；这是下一项最大不确定性。

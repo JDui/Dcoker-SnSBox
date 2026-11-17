@@ -105,7 +105,8 @@ export type Mode = 'live' | 'demo'
 
 export interface HistorySource {
   id: string; platform: Platform; displayName: string; kind: 'legacy-readonly'; status: 'not_loaded' | 'refreshing' | 'ready' | 'partial' | 'keys_required' | 'snapshot_required' | 'unsupported' | 'error'
-  reason: string; readOnly: true; sendAllowed: false; capturedAt?: string | null; indexedAt?: string | null; consistency: 'operator-confirmed-copy' | 'unavailable'
+  format?: string | null; canRefresh?: boolean
+  reason: string; readOnly: true; sendAllowed: false; capturedAt?: string | null; indexedAt?: string | null; consistency: 'operator-confirmed-copy' | 'operator-confirmed-export' | 'unavailable'
   generation?: string | null; conversationCount?: number | null; messageCount?: number | null; partial: boolean
 }
 export interface HistoryConversation extends Conversation { sourceId: string; readOnly: true }

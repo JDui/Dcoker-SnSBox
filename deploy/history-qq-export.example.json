@@ -1,0 +1,11 @@
+[
+  {
+    "id": "qq-export",
+    "platform": "qq",
+    "displayName": "QQ 文字历史导出",
+    "format": "chatlog-keeper-qq-json",
+    "profilePath": "/history-qq/qq_messages.json",
+    "confirmedConsistentSnapshot": false,
+    "capturedAt": null
+  }
+]

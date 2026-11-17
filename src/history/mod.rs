@@ -1,6 +1,7 @@
 //! Read-only legacy history. Official sources never receive SQLite connections.
 //! The maintained profile reader works on its own private copy; our only writes
 //! are to the separate SnSBox index. Errors deliberately discard upstream details.
+mod qq_export;
 mod reader;
 #[cfg(test)]
 mod tests;
@@ -34,6 +35,8 @@ pub struct SourceConfig {
     pub id: String,
     pub platform: String,
     pub display_name: String,
+    /// Explicit upstream format. Omitted preserves the existing WeChat reader.
+    pub format: Option<String>,
     pub profile_path: Option<PathBuf>,
     pub keys_file: Option<PathBuf>,
     #[serde(default)]
@@ -43,6 +46,19 @@ pub struct SourceConfig {
     pub captured_at: Option<String>,
 }
 
+impl SourceConfig {
+    fn format_name(&self) -> &str {
+        self.format.as_deref().unwrap_or(if self.platform == "qq" {
+            "qqnt-encrypted"
+        } else {
+            "wechat-profile"
+        })
+    }
+    fn is_qq_export(&self) -> bool {
+        self.platform == "qq" && self.format_name() == "chatlog-keeper-qq-json"
+    }
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SourceStatus {
@@ -50,6 +66,8 @@ pub struct SourceStatus {
     pub platform: String,
     pub display_name: String,
     pub kind: &'static str,
+    pub format: String,
+    pub can_refresh: bool,
     pub status: String,
     pub reason: String,
     pub read_only: bool,
@@ -149,6 +167,7 @@ impl HistoryService {
                     id: "legacy-wechat".into(),
                     platform: "wechat".into(),
                     display_name: "既有微信历史".into(),
+                    format: None,
                     profile_path: None,
                     keys_file: None,
                     allow_plaintext: false,
@@ -159,6 +178,7 @@ impl HistoryService {
                     id: "legacy-qq".into(),
                     platform: "qq".into(),
                     display_name: "既有 QQ 历史".into(),
+                    format: None,
                     profile_path: None,
                     keys_file: None,
                     allow_plaintext: false,
@@ -293,7 +313,11 @@ impl HistoryService {
                     status.conversation_count = Some(row.get("conversation_count"));
                     status.message_count = Some(row.get("message_count"));
                     status.status = if status.partial { "partial" } else { "ready" }.into();
-                    status.reason = "展示上次建立的本地只读索引；刷新才重新读取已配置副本".into();
+                    status.reason = if config.is_qq_export() {
+                        "展示上次导入的 QQ 文字索引；上游导出有时间范围及正文截断，附件未导入，刷新才重新读取导出"
+                    } else {
+                        "展示上次建立的本地只读索引；刷新才重新读取已配置副本"
+                    }.into();
                 }
             }
             statuses.insert(config.id.clone(), status);
@@ -338,6 +362,7 @@ impl HistoryService {
                 return Ok(status.clone());
             }
             status.status = "refreshing".into();
+            status.can_refresh = false;
             status.reason = "正在读取已确认的独立副本；原资料不写入".into();
         }
         // Pin the already validated canonical root before entering a worker.
@@ -384,6 +409,9 @@ impl HistoryService {
             }
             .into();
             status.reason = reason.into();
+            // A configured source can be repaired at the same deployment path.
+            // Refresh re-runs preflight; a parser failure must not disable retry.
+            status.can_refresh = true;
         }
     }
 
@@ -414,7 +442,9 @@ impl HistoryService {
             self.index_root.parent().expect("index is under data"),
         );
         status.status = if snapshot.partial { "partial" } else { "ready" }.into();
-        status.reason = if snapshot.partial {
+        status.reason = if config.is_qq_export() {
+            "已导入 QQ 导出中的文字记录；上游导出有时间范围及正文截断，附件未导入，仅搜索当前索引"
+        } else if snapshot.partial {
             "部分数据库、类型或超出读取上限的记录未纳入；只能搜索当前本地索引"
         } else {
             "已建立所配置副本的本地只读历史索引；不代表全设备完整记录"
@@ -452,7 +482,7 @@ fn source_binding(config: &SourceConfig) -> String {
             )
         });
     // Stored only in the private index; never sent to a browser or a log.
-    serde_json::to_string(&(
+    let binding = serde_json::to_string(&(
         path,
         key,
         key_metadata,
@@ -460,7 +490,12 @@ fn source_binding(config: &SourceConfig) -> String {
         config.confirmed_consistent_snapshot,
         &config.captured_at,
     ))
-    .unwrap_or_default()
+    .unwrap_or_default();
+    if config.platform == "qq" || config.format.is_some() {
+        serde_json::to_string(&(binding, config.format_name())).unwrap_or_default()
+    } else {
+        binding
+    }
 }
 fn changed() -> HistoryError {
     HistoryError(
@@ -491,6 +526,8 @@ fn initial_status(config: &SourceConfig, active: Option<&Path>, data: &Path) -> 
         platform: config.platform.clone(),
         display_name: config.display_name.clone(),
         kind: "legacy-readonly",
+        format: config.format_name().into(),
+        can_refresh: false,
         status: "not_loaded".into(),
         reason: "已配置独立副本；点击读取来源建立本地只读索引".into(),
         read_only: true,
@@ -503,11 +540,13 @@ fn initial_status(config: &SourceConfig, active: Option<&Path>, data: &Path) -> 
         message_count: None,
         partial: false,
     };
-    let blocked = if config.platform == "qq" {
+    let blocked = if config.platform == "qq" && !config.is_qq_export() {
         Some((
             "unsupported",
-            "当前读取器不解密官方 QQNT 既有资料；独立 QQ 网络上游历史不等于旧资料历史",
+            "请配置独立的 chatlog-keeper QQ JSON 导出；此读取器不能直接解密官方 QQNT 数据库",
         ))
+    } else if config.platform == "wechat" && config.format_name() != "wechat-profile" {
+        Some(("unsupported", "该平台的历史导出格式不受支持"))
     } else if !config.confirmed_consistent_snapshot {
         Some((
             "snapshot_required",
@@ -540,12 +579,24 @@ fn initial_status(config: &SourceConfig, active: Option<&Path>, data: &Path) -> 
             "snapshot_required",
             "拒绝与活跃源或自有索引重叠的资料路径；未打开数据库",
         ))
-    } else if !temporary_directory_isolated(config.profile_path.as_deref(), active) {
+    } else if config.is_qq_export()
+        && !config
+            .profile_path
+            .as_ref()
+            .is_some_and(|path| path.is_file())
+    {
+        Some((
+            "unsupported",
+            "QQ 导出来源必须指向独立的 qq_messages.json 文件",
+        ))
+    } else if !config.is_qq_export()
+        && !temporary_directory_isolated(config.profile_path.as_deref(), active)
+    {
         Some((
             "snapshot_required",
             "临时目录不可用或位于资料来源内；请配置独立临时目录后重启",
         ))
-    } else if !config.allow_plaintext && config.keys_file.is_none() {
+    } else if !config.is_qq_export() && !config.allow_plaintext && config.keys_file.is_none() {
         Some((
             "keys_required",
             "加密资料缺少受保护数据库密钥文件；保存登录材料不能代替数据库密钥",
@@ -557,6 +608,14 @@ fn initial_status(config: &SourceConfig, active: Option<&Path>, data: &Path) -> 
         status.status = code.into();
         status.reason = reason.into();
         status.consistency = "unavailable";
+    } else {
+        status.can_refresh = true;
+        if config.is_qq_export() {
+            status.consistency = "operator-confirmed-export";
+            status.reason =
+                "已配置独立 QQ JSON 导出；点击读取来源导入文字历史，附件与导出范围以外记录不可读"
+                    .into();
+        }
     }
     status
 }

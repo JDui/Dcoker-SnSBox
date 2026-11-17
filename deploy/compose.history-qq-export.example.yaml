@@ -1,0 +1,9 @@
+# Completed, independent JSON export only. Never point this at live WS config.
+# Compose-relative paths are resolved against the first Compose file.
+services:
+  snsbox:
+    environment:
+      SNSBOX_HISTORY_SOURCES_FILE: /run/config/history-sources.json
+    volumes:
+      - ./private/history-sources.json:/run/config/history-sources.json:ro
+      - ./private/qq-history:/history-qq:ro

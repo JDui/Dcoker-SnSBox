@@ -67,6 +67,9 @@ fn summary(fields: &wechat_profile::RawFields) -> Option<String> {
 }
 
 pub fn read(config: &SourceConfig) -> Result<Snapshot, HistoryError> {
+    if config.is_qq_export() {
+        return super::qq_export::read(config);
+    }
     let location = ProfileLocation::new(
         config
             .profile_path

@@ -129,3 +129,73 @@ test('既有历史：阻塞条件、只读分页搜索、来源隔离和代次�
   expect(mutations).toEqual(Array(2).fill('POST /api/v1/history/sources/fixture-history-a/refresh'))
   expect(unexpected).toEqual([])
 })
+
+test('QQ 历史按服务端状态开放读取，平台身份隔离且始终只读', async ({ page }) => {
+  let phase: 'keys_required' | 'partial' = 'keys_required'
+  let canRefresh = false
+  let prepared = false
+  let refreshes = 0
+  let conversationReads = 0
+  const mutations: string[] = []
+  const sourceId = 'synthetic-qq-history'
+  const accountId = `history:${sourceId}`
+  const source = () => ({ id: sourceId, platform: 'qq', displayName: 'QQ 历史 · 合成接口夹具', kind: 'legacy-readonly', format: 'chatlog-keeper-qq-json', canRefresh, status: phase, reason: phase === 'keys_required' ? '合成 QQ 来源缺少匹配密钥，尚未读取消息。' : '合成接口夹具可读，不代表真实 QQ 资料已兼容。', readOnly: true, sendAllowed: false, capturedAt: '2026-11-17T00:00:00Z', indexedAt: phase === 'partial' ? '2026-11-17T01:00:00Z' : null, generation: phase === 'partial' ? 'synthetic-qq-generation' : null, consistency: 'operator-confirmed-copy', partial: true, conversationCount: phase === 'partial' ? 1 : null, messageCount: phase === 'partial' ? 1 : null })
+  const conversation = { id: 'synthetic-qq-conversation', sourceId, accountId, platform: 'qq', title: '合成 QQ 群聊', kind: 'group', unreadCount: 0, readOnly: true }
+  const message = { id: 'synthetic-qq-message', sourceId, accountId, conversationId: conversation.id, platform: 'qq', direction: 'incoming', senderName: '合成发送者', timestamp: '2026-11-17T00:00:00Z', segments: [{ type: 'text', text: '合成 QQ 历史正文，仅检查显示与搜索。' }], status: 'received', readOnly: true }
+  const foreign = [{ ...message, id: 'synthetic-wrong-platform', platform: 'wechat', segments: [{ type: 'text', text: '不应显示的微信记录' }] }, { ...message, id: 'synthetic-wrong-account', accountId: 'history:other-account', segments: [{ type: 'text', text: '不应显示的其他账号记录' }] }]
+  await page.route('**/api/v1/**', route => {
+    const request = route.request()
+    const path = new URL(request.url()).pathname
+    if (request.method() !== 'GET') mutations.push(path)
+    if (path.endsWith('/session')) return route.fulfill({ json: { authenticated: true, csrfToken: 'synthetic-qq-csrf' } })
+    if (path.endsWith('/events')) return route.fulfill({ contentType: 'text/event-stream', body: ': synthetic QQ layout\n\n' })
+    if (path.endsWith('/history/sources')) return route.fulfill({ json: { items: [source()] } })
+    if (path.endsWith(`/${sourceId}/refresh`)) {
+      refreshes++
+      expect(request.headers()['x-csrf-token']).toBe('synthetic-qq-csrf')
+      if (prepared) phase = 'partial'
+      if (refreshes > 2) canRefresh = false
+      return route.fulfill({ json: source() })
+    }
+    if (path.includes('/history/') && path.endsWith('/conversations')) { conversationReads++; return route.fulfill({ json: { items: [conversation, { ...conversation, id: 'foreign-conversation', platform: 'wechat', title: '不应显示的微信会话' }], nextCursor: null } }) }
+    if (path.includes('/history/') && path.endsWith('/messages')) return route.fulfill({ json: { items: [message, ...foreign], nextCursor: null } })
+    return route.fulfill({ json: { items: [] } })
+  })
+  await page.goto('/')
+  await page.getByRole('button', { name: '既有历史', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '缺少密钥', exact: true })).toBeVisible()
+  const recheck = page.getByRole('button', { name: '重新检查条件', exact: true })
+  await expect(recheck).toBeDisabled() // Explicit server false wins over keys_required.
+  expect(conversationReads).toBe(0)
+  canRefresh = true
+  await page.reload()
+  await page.getByRole('button', { name: '既有历史', exact: true }).click()
+  await expect(recheck).toBeEnabled()
+  await recheck.click()
+  await expect.poll(() => refreshes).toBe(1)
+  expect(conversationReads).toBe(0)
+  prepared = true
+  await recheck.click()
+  await page.locator('.history-conversation').click()
+  await expect(page.getByRole('log', { name: '消息记录' }).getByText('合成 QQ 历史正文，仅检查显示与搜索。', { exact: true })).toBeVisible()
+  await expect(page.locator('.chat-header').getByRole('img', { name: 'QQ平台', exact: true })).toHaveCount(2)
+  await expect(page.locator('.chat-header .avatar-platform')).toHaveText('')
+  await expect(page.locator('.history-source-summary')).toContainText('仅导出文字，正文可能已截断')
+  await expect(page.getByText(/不应显示的/)).toHaveCount(0)
+  await expect(page.locator('.composer, textarea, input[type=file]')).toHaveCount(0)
+  await expect(page.locator('.chat-header').getByRole('button', { name: /^会话操作/ })).toHaveCount(0)
+  await page.getByRole('searchbox', { name: '搜索当前历史来源' }).fill('合成')
+  await expect(page.locator('.search-result')).toHaveCount(1)
+  await page.locator('.search-result').click()
+  await page.setViewportSize({ width: 640, height: 360 })
+  await expect(page.locator('.readonly-history-footer')).toBeInViewport()
+  expect(await page.locator('.message-scroll').evaluate(element => element.clientHeight)).toBeGreaterThan(100)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await page.screenshot({ path: 'test-results/history-qq-readonly-synthetic-640x360.png', animations: 'disabled' })
+  await page.getByRole('button', { name: '返回会话列表', exact: true }).click()
+  await page.getByRole('button', { name: '重新读取副本', exact: true }).click()
+  await expect(page.getByRole('button', { name: '重新读取副本', exact: true })).toBeDisabled() // Explicit false also wins over a readable partial index.
+  await page.locator('.search-result').click()
+  await expect(page.getByRole('log', { name: '消息记录' }).getByText('合成 QQ 历史正文，仅检查显示与搜索。', { exact: true })).toBeVisible()
+  expect(mutations).toEqual(Array(3).fill(`/api/v1/history/sources/${sourceId}/refresh`))
+})

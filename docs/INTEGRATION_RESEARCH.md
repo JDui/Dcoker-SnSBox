@@ -85,3 +85,15 @@ SnSBox 应适配以上来源，不把“改写数据库”等同于发消息，�
 - 协议依据：[Microsoft SMB2 Previous Versions](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-smb2/c631e497-9a47-4537-9817-8af2a4834d03)。只有服务器返回的既有版本才可列为候选；枚举本身不证明数据库完整、密钥可用或版本覆盖范围。
 - 进一步审查固定 chatlog-keeper 源码发现 `scripts/linux_memory_scan.c` 有 `PTRACE_ATTACH` 回退，需要核实具体调用链。后端线程确认普通 Linux passive Python 路径不调用此 helper，active 子进程路径可以调用。SnSBox 只保留独立 `core/_linux_process_memory.py` 的 `process_vm_readv` 读取与密钥验证函数，不带入 C helper、CLI、主动捕获或进程自动发现。SMB 文件共享本身不提供远端进程内存。
 - [SQLite WAL 文档](https://www.sqlite.org/wal.html) 说明 WAL 与共享内存的读写协作条件。`mode=ro` 不等于零锁影响，也不能将活跃数据库错误标记为 `immutable` 来获取一致性；本轮不在现用源上调用备份 API 或 checkpoint。
+
+## 第五轮：QQ 真实导出格式接入（2026-11-17）
+
+已核对缓存中的固定 chatlog-keeper `d2feeec09a192af9a4738547b8543cf096386464` 源码，MIT 许可证。采用其现有 JSON 导出格式，在 Rust 中实现有限字段适配，没有另做 QQ 私有协议或 SQLCipher 解密，也未复制/调用上游 CLI：
+
+- [`export.py:export_json`](https://github.com/labazhou2024/chatlog-keeper/blob/d2feeec09a192af9a4738547b8543cf096386464/chatlog_keeper/export.py) 将消息列表原样写成 UTF-8 JSON 数组，不是 JSONL，也不是 SnSBox 自定义消息封装。
+- [`qq_db.py:QQDBReader.read_recent_dicts`](https://github.com/labazhou2024/chatlog-keeper/blob/d2feeec09a192af9a4738547b8543cf096386464/chatlog_keeper/qq_db.py) 输出账号、会话、类型、发送人、`ts`、`content` 等字段。固定路径正文最多 1500 字符，`msg_id` 为 null，`source_offset` 以会话和秒数构造，可能重复；不可拿它作为唯一消息 ID。
+- [`cli.py:_export_qq`](https://github.com/labazhou2024/chatlog-keeper/blob/d2feeec09a192af9a4738547b8543cf096386464/chatlog_keeper/cli.py) 最终写 `qq_messages.json`，补全 `account_id`、`conversation_id`、`conversation_type: direct/group` 和 `is_self`。账号标识不能归一为 QQ 号码时，`is_self` 仍可能为 false；SnSBox 不把这种 false 冒充确知的入站方向。群聊与好友同号、多个账号同会话号必须分开。
+
+SnSBox 配置 `format: chatlog-keeper-qq-json` 直接读取已经完成的独立文件，限制 64 MiB / 10 万条；只写自有索引，原 JSON 不改写，附件元数据和未知字段不进入产品模型。账号、会话类型和会话 ID 共同作用域化，行号避免导出内部消息碰撞。分页、搜索、鉴权与代际游标复用原历史模块。成功为 `partial`，重启后仍说明上游时间窗口、正文截断和附件缺失。部署见 [HISTORY_SETUP](../deploy/HISTORY_SETUP.md)。
+
+本轮针对性验证为合成的真实字段格式，不能证明现场 NTQQ 解密、密钥或完整历史可用。没有在活跃 NAS 上执行 chatlog-keeper 初始化/导出、进程读内存、注入或调试。主线程另行审查 WeQ 的本地凭据复用：其 pure-protocol quickLogin 需要网络认证/新会话，可能手机确认，并非离线读取数据库密钥；当前未执行。最大未决项仍是取得用户授权范围内、与现用客户端隔离的实际 QQ 导出或可解密一致性副本。

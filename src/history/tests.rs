@@ -9,12 +9,152 @@ fn config(id: &str, path: &Path, keys: Option<PathBuf>, plain: bool) -> SourceCo
         id: id.into(),
         platform: "wechat".into(),
         display_name: "合成历史来源".into(),
+        format: None,
         profile_path: Some(path.into()),
         keys_file: keys,
         allow_plaintext: plain,
         confirmed_consistent_snapshot: true,
         captured_at: Some("2026-11-15T00:00:00Z".into()),
     }
+}
+
+#[tokio::test]
+async fn qq_export_import_preserves_scopes_rows_and_rejects_invalid_replacement() {
+    let root = tempfile::tempdir().unwrap();
+    let data = root.path().join("index-data");
+    std::fs::create_dir(&data).unwrap();
+    let export = root.path().join("qq_messages.json");
+    // Fixed upstream read_recent_dicts + cli._export_qq shape. Synthetic data
+    // only; source_offset intentionally collides just as the legacy export can.
+    let record = json!({"ts":1700000000.0,"ts_iso":"2023-11-14T22:13:20+00:00",
+        "wxid_hash":"unused-upstream-field","sender_qq":11002,"sender_name":"合成发送者",
+        "content":"合成QQ搜索 <img src=x onerror=alert(1)>","msg_id":null,
+        "chat_uid":"11002","chat_kind":"friend","account_id":"11001",
+        "conversation_id":"11002","thread_id":"11001::11002","conversation_type":"direct",
+        "is_group_chat":false,"is_self":false,"source_offset":"qq_db:11002:1700000000",
+        "attachment_meta":{"path":"/never-open-private-marker","url":"http://127.0.0.1/private-marker"}});
+    let mut rows = vec![record.clone(); 5];
+    rows[1]["content"] = json!("合成QQ搜索 同秒第二条");
+    rows[1]["sender_qq"] = json!(11001);
+    rows[1]["is_self"] = json!(true);
+    rows[2]["conversation_type"] = json!("group");
+    rows[2]["chat_kind"] = json!("group");
+    rows[2]["is_group_chat"] = json!(true);
+    rows[3]["account_id"] = json!("22001");
+    rows[4]["account_id"] = json!("linux_profile_identifier");
+    let original = serde_json::to_vec_pretty(&rows).unwrap();
+    std::fs::write(&export, &original).unwrap();
+    let mut qq = config("qq-export", &export, None, false);
+    qq.platform = "qq".into();
+    qq.format = Some("chatlog-keeper-qq-json".into());
+    let mut other = qq.clone();
+    other.id = "another-export".into();
+    let service = HistoryService::with_configs(&data, None, vec![qq.clone(), other])
+        .await
+        .unwrap();
+    assert!(service.status("qq-export").await.unwrap().can_refresh);
+    let status = ready(&service, "qq-export").await;
+    assert_eq!(status.status, "partial");
+    assert_eq!(status.message_count, Some(5));
+    assert_eq!(status.conversation_count, Some(4));
+    assert_eq!(status.consistency, "operator-confirmed-export");
+    assert!(status.read_only && !status.send_allowed && status.can_refresh);
+    let Json(page) = message_page(
+        &service,
+        "qq-export",
+        None,
+        PageQuery {
+            query: Some("合成QQ搜索".into()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    let items = page["items"].as_array().unwrap();
+    assert_eq!(items.len(), 5);
+    let ids: std::collections::BTreeSet<_> = items
+        .iter()
+        .map(|item| item["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids.len(), 5);
+    assert!(items.iter().any(|item| item["direction"].is_null()));
+    assert!(items.iter().any(|item| item["direction"] == "outgoing"));
+    assert!(items.iter().any(|item| item["direction"] == "incoming"));
+    assert!(!page.to_string().contains("private-marker"));
+    assert_eq!(std::fs::read(&export).unwrap(), original);
+    service.pool.close().await;
+    let mut other = qq.clone();
+    other.id = "another-export".into();
+    let service = HistoryService::with_configs(&data, None, vec![qq.clone(), other])
+        .await
+        .unwrap();
+    let restored = service.status("qq-export").await.unwrap();
+    assert_eq!(restored.generation, status.generation);
+    assert_eq!(restored.status, "partial");
+    assert!(restored.reason.contains("正文截断") && restored.can_refresh);
+    ready(&service, "another-export").await;
+    assert!(
+        message_page(
+            &service,
+            "another-export",
+            items[0]["conversationId"].as_str(),
+            PageQuery::default()
+        )
+        .await
+        .is_err()
+    );
+    std::fs::write(&export, b"SQLite format 3\0not a JSON export").unwrap();
+    service.refresh("qq-export").await.unwrap();
+    for _ in 0..100 {
+        if service.status("qq-export").await.unwrap().status != "refreshing" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let failed = service.status("qq-export").await.unwrap();
+    assert_eq!(failed.status, "unsupported");
+    assert!(failed.can_refresh);
+    assert_eq!(failed.generation, status.generation);
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM history_messages WHERE source_id='qq-export'")
+            .fetch_one(&service.pool)
+            .await
+            .unwrap();
+    assert_eq!(count, 5);
+    qq.confirmed_consistent_snapshot = false;
+    assert_eq!(initial_status(&qq, None, &data).status, "snapshot_required");
+    qq.confirmed_consistent_snapshot = true;
+    assert_eq!(
+        initial_status(&qq, Some(root.path()), &data).status,
+        "snapshot_required"
+    );
+    qq.format = None;
+    assert_eq!(initial_status(&qq, None, &data).status, "unsupported");
+    service.pool.close().await;
+}
+
+#[test]
+fn qq_export_bounds_and_ambiguous_scope_fail_closed() {
+    let root = tempfile::tempdir().unwrap();
+    let export = root.path().join("qq_messages.json");
+    let file = std::fs::File::create(&export).unwrap();
+    file.set_len(64 * 1024 * 1024 + 1).unwrap();
+    drop(file);
+    let mut qq = config("bounded-qq", &export, None, false);
+    qq.platform = "qq".into();
+    qq.format = Some("chatlog-keeper-qq-json".into());
+    assert!(matches!(
+        reader::read(&qq),
+        Err(HistoryError(_, "history_unsupported", _))
+    ));
+    let mut row = json!({"account_id":"12345","conversation_id":"67890","conversation_type":"direct",
+        "chat_kind":"group","ts":1700000000.0,"content":"synthetic"});
+    std::fs::write(&export, serde_json::to_vec(&vec![row.clone()]).unwrap()).unwrap();
+    assert!(reader::read(&qq).is_err());
+    row["chat_kind"] = json!("friend");
+    row["sender_qq"] = json!("not-an-integer");
+    std::fs::write(&export, serde_json::to_vec(&vec![row]).unwrap()).unwrap();
+    assert!(reader::read(&qq).is_err());
 }
 fn inject(location: &ProfileLocation, keys: &KeyFile, plain: bool) {
     for index in 0i64..3 {
