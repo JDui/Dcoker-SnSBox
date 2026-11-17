@@ -1,5 +1,13 @@
 # wechat-selkies config 兼容计划
 
+## 当前活跃路径（2026-11-17）
+
+用户更换 NAS 后，当前活跃 WS config 为 `X:\Docker\selkies\config`。本次仅通过目录元数据确认该路径可达，没有读取其令牌、密钥、消息或数据库格式头，也没有启动、暂停或修改 WS。旧 `X:\Docker\wechat` 保留为额外保护边界；工具命令同时传入 `--active-root "X:\Docker\selkies" --active-root "X:\Docker\wechat"`，并按需添加其他已知 UNC/映射别名。
+
+检查当前两个隔离 MVP 容器 `snsbox-mvp`、`snsbox-mvp-wechat` 的实际挂载，均仅使用自有命名卷和本项目 `private/mvp-login` 只读配置目录，没有挂载旧、新 NAS 路径，也没有 `SNSBOX_LEGACY_CONFIG` 设置。当前私有部署配置未发现这两处路径引用，因此本次未修改运行配置、未重建容器。新活跃源不会因路径更新而自动接入历史 reader 或上游 writer。
+
+下文较早的布局、格式头和镜像标签核对属于旧现场历史证据，不证明新 NAS 的资料布局、客户端版本、快照能力或密钥兼容性。真实读取仍需独立一致性来源和匹配密钥。
+
 ## 目标和证据
 
 来源：[JDui/wechat-selkies](https://github.com/JDui/wechat-selkies)。2026-11-15 对本机对应源码只读核对：README 的持久化/下载目录说明、root/scripts/stable-desktop-environment.py、root/scripts/container_download.py。未读取用户聊天内容或令牌。
@@ -32,9 +40,9 @@ WS 把用户目录持久化到 `/config`。现有源码引用以下布局；它�
 
 浏览器和日志只暴露必要状态，不返回源资料文件内容、完整账号路径或登录秘密。
 
-## 本轮活跃源只读核对
+## 2026-11-15 旧现场活跃源只读核对
 
-用户明确现有 WS 仍在使用，只能只读检查。用户给出的目录是 Compose 项目根，实际资料在其 `config/` 子目录。只读核对确认 `.xwechat`、`xwechat_files`、`.config/QQ`、`.system-identity` 和 `.xwechat/net/host` 存在；Compose 镜像标签为 `wechat-selkies:1.83`，该标签不等于微信/QQ 客户端的版本号。
+当时用户明确现有 WS 仍在使用，只能只读检查。用户给出的 `X:\Docker\wechat` 是 Compose 项目根，实际资料在其 `config/` 子目录。只读核对确认 `.xwechat`、`xwechat_files`、`.config/QQ`、`.system-identity` 和 `.xwechat/net/host` 存在；Compose 镜像标签为 `wechat-selkies:1.83`，该标签不等于微信/QQ 客户端的版本号。
 
 仅检查代表性文件的 16 字节格式头，不输出原始字节：微信 session、contact、message 数据库均不具有明文 SQLite 文件头，不能按普通 SQLite 文件直接查询；未提取密钥、登录令牌或消息。QQ 存在 `nt_qq_*` 下的 `nt_data` 和 `nt_db`。报告不记录实际账号目录名。源目录未修改、未复制、未停止写入方。
 

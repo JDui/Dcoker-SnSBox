@@ -2,7 +2,7 @@
 
 日期：2026-11-17。实现文件：[prepare.py](../tools/history-snapshot/prepare.py) 与 [stage-compose.py](../tools/history-snapshot/stage-compose.py)，Python 3.10+ 标准库；不改变 Rust 主服务、不引入新运行时依赖。工具不会创建 NAS 快照、停止微信、提取密钥或连接输入端 SQLite。
 
-当前只有 SMB，原生历史版本探测未得到可用快照；没有 SSH 或快照接口信息。本工具已完成可执行准备链路，但不会因此把活跃目录热复制并标为一致。真实源仍缺独立一致来源和匹配密钥，尚未读取其记录。
+当前只有 SMB，没有 SSH 或快照接口信息。2026-11-17 用户更换 NAS，当前活跃 config 为 `X:\Docker\selkies\config`；旧 `X:\Docker\wechat\config` 的历史版本探测未得到可用快照，该结果不代表新 NAS 的能力。新路径目前仅在本次路径迁移检查中确认目录元数据可达。本工具已完成可执行准备链路，但不会因此把活跃目录热复制并标为一致。真实源仍缺独立一致来源和匹配密钥，尚未读取其记录。
 
 ## 路线判断
 
@@ -33,8 +33,8 @@
 仅对已经独立的副本执行；下例路径都是占位，不是让工具复制当前运行中的 WS。
 
 ```powershell
-python tools/history-snapshot/prepare.py inspect "D:\IndependentCopy\account" --active-root "X:\Docker\wechat"
-python tools/history-snapshot/prepare.py prepare "D:\IndependentCopy\account" --active-root "X:\Docker\wechat" --output "private/history-unconfirmed"
+python tools/history-snapshot/prepare.py inspect "D:\IndependentCopy\account" --active-root "X:\Docker\selkies" --active-root "X:\Docker\wechat"
+python tools/history-snapshot/prepare.py prepare "D:\IndependentCopy\account" --active-root "X:\Docker\selkies" --active-root "X:\Docker\wechat" --output "private/history-unconfirmed"
 ```
 
 默认 `source-kind=unverified-copy`。即使元数据稳定，也生成 `confirmedConsistentSnapshot:false`；缺密钥同时报告 `keys_required`。不能加确认开关将该类型绕过为一致来源。
@@ -46,7 +46,7 @@ python tools/history-snapshot/prepare.py prepare "D:\IndependentCopy\account" --
 操作者需要知道该路径确实属于 NAS 生成的独立只读快照，并提供真实捕获时间/引用。工具不会仅凭 `@GMT` 文件夹名或用户输入的字符串证明快照存在。
 
 ```powershell
-python tools/history-snapshot/prepare.py prepare "Y:\KnownReadOnlySnapshot\config" --active-root "X:\Docker\wechat" --source-kind nas-snapshot --snapshot-reference "actual-snapshot-reference" --captured-at "2026-11-16T08:00:00+08:00" --confirm-consistent-source --keys-file "private/history-wechat-keys.json" --output "private/history-prepared"
+python tools/history-snapshot/prepare.py prepare "Y:\KnownReadOnlySnapshot\config" --active-root "X:\Docker\selkies" --active-root "X:\Docker\wechat" --source-kind nas-snapshot --snapshot-reference "actual-snapshot-reference" --captured-at "2026-11-16T08:00:00+08:00" --confirm-consistent-source --keys-file "private/history-wechat-keys.json" --output "private/history-prepared"
 ```
 
 `copy` 将账号目录中的 DB+WAL 复制到新 bundle；如果 Docker 运行主机本身能访问快照路径，可加 `--mode mount`，省去重复复制。Windows/SMB 路径必须可供当前 Docker daemon 挂载；在 NAS/Linux 生成的宿主路径不能直接拿到 Windows daemon 使用，反之亦然。
@@ -60,7 +60,7 @@ python tools/history-snapshot/prepare.py prepare "Y:\KnownReadOnlySnapshot\confi
 准备完成、没有 `INCOMPLETE.json` 后，Windows bind 或 root 生成的 `0700/0600` bundle 推荐先暂存到自有 Linux 卷。需要已有本地 `snsbox:0.1.0` 镜像；工具不拉镜像、不启动主服务：
 
 ```powershell
-python tools/history-snapshot/stage-compose.py private/history-prepared --active-root "D:\ProtectedLive" --output private/history-deployment
+python tools/history-snapshot/stage-compose.py private/history-prepared --active-root "X:\Docker\selkies" --active-root "X:\Docker\wechat" --output private/history-deployment
 docker compose -f compose.yaml -f private/history-deployment/compose.history.yaml config --quiet
 docker compose -f compose.yaml -f private/history-deployment/compose.history.yaml up -d
 ```
@@ -94,6 +94,8 @@ python tools/history-snapshot/prepare.py prepare /mnt/independent-export/account
 
 主线程另负责真正兼容 SQLCipher 的合成 profile、密钥格式转换和现有镜像 HTTP 集成检查，结果见 [执行记录](EXECUTION_STATUS.md)，本文件不提前宣称其结果。没有运行无关全套应用测试，没有增加手工 SHA 验收。
 
-2026-11-17：新增 `python tools/history-snapshot/test_stage_compose.py` 聚焦检查，覆盖宽权限合成 key 输入不变、Linux 卷内 `10001:10001/0600`、真实 UID 10001 读取和 scratch 写入、历史卷拒写、已有输出/链接/途中失败不发布；Compose HTTP 使用生成配置的实际验收由主线程单独记录。该检查只使用本地临时合成资料，不访问 X:，不重复运行 history-smoke。
+2026-11-17：`python tools/history-snapshot/test_stage_compose.py` 聚焦检查 1 项通过（5.391 秒），覆盖宽权限合成 key 输入不变、Linux 卷内 `10001:10001/0600`、真实 UID 10001 读取和 scratch 写入、历史卷拒写、远程 Docker 拒绝、已有输出/链接/途中失败不发布。该检查只使用本地临时合成资料，不访问 X:，不重复运行 history-smoke。
+
+主线程随后实际运行 `tools/history-compose-smoke.mjs` 通过（约 7 秒）：直接使用生成 Compose、未由测试手工 chown 或改写清单、源 key 不变；合成来源 ready，1 个会话、3 条消息、搜索 3 条。该结果证明本轮合成部署链路，不代表用户真实历史可读；完整记录由主线程维护在执行记录中。
 
 下一项最大不确定性仍是得到当前部署可访问的真实一致性来源及授权密钥。SMB 不提供已有历史版本且没有其他接口时，当前工具无法凭空生成该来源；保持阻塞状态，同时交付可在来源就绪后直接执行的准备和导入链路。
