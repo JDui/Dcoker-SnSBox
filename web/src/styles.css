@@ -810,6 +810,12 @@ h1, h2, h3, h4, p { margin: 0; }
 .history-sidebar { overflow-y: auto; overscroll-behavior: contain; }
 .history-conversations { min-height: min(160px,30dvh); }
 .history-source-summary>div { flex-wrap: wrap; }
+.message-position-bar { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 14px; min-height: 38px; border-bottom: 1px solid var(--border); font-size: 11px; color: var(--text-secondary); background: var(--panel); }
+.message-position-bar>div { display: flex; flex-shrink: 0; }
+.message-position-bar .button { min-height: 44px; font-size: 11px; }
+.has-message-position .history-load { position: sticky; top: 0; z-index: 2; background: var(--chat-bg); }
+.is-search-hit .message-bubble { outline: 2px solid var(--accent); outline-offset: 3px; }
+.is-search-hit:focus { outline: none; }
 .history-empty { min-height: 0; overflow-y: auto; justify-content: flex-start; overflow-wrap: anywhere; }
 .history-empty-icon { margin-top: auto; flex-shrink: 0; }
 .history-empty>h2, .history-empty>p, .history-boundary { flex-shrink: 0; }

@@ -1,4 +1,4 @@
-import type { Account, AccountOperation, CompatibilityReport, Conversation, ConversationPatch, HistoryConversation, HistoryMessage, HistorySource, LoginChallenge, LoginOptions, Message, Page, Segment, Session, SystemInfo } from './types'
+import type { Account, AccountOperation, CompatibilityReport, Conversation, ConversationPatch, HistoryConversation, HistoryMessage, HistoryMessageContext, HistoryMessagePage, HistorySource, LoginChallenge, LoginOptions, Message, Page, Segment, Session, SystemInfo } from './types'
 
 const prefix = '/api/v1'
 let csrfToken: string | undefined
@@ -62,7 +62,8 @@ export const api = {
   historySources: () => request<Page<HistorySource>>('/history/sources'),
   historyRefresh: (source: string) => request<HistorySource>(`/history/sources/${encodeURIComponent(source)}/refresh`, json({})),
   historyConversations: (source: string, cursor?: string | null) => request<Page<HistoryConversation>>(`/history/sources/${encodeURIComponent(source)}/conversations${params({ cursor, limit: 50 })}`),
-  historyMessages: (source: string, conversation: string, cursor?: string | null) => request<Page<HistoryMessage>>(`/history/sources/${encodeURIComponent(source)}/conversations/${encodeURIComponent(conversation)}/messages${params({ cursor, limit: 50 })}`),
+  historyMessages: (source: string, conversation: string, cursor?: string | null) => request<HistoryMessagePage>(`/history/sources/${encodeURIComponent(source)}/conversations/${encodeURIComponent(conversation)}/messages${params({ cursor, limit: 50 })}`),
+  historyMessageContext: (source: string, conversation: string, message: string, generation: string) => request<HistoryMessageContext>(`/history/sources/${encodeURIComponent(source)}/conversations/${encodeURIComponent(conversation)}/messages/${encodeURIComponent(message)}/context${params({ limit: 50, generation })}`),
   historySearch: (source: string, query: string, cursor?: string | null) => request<Page<HistoryMessage>>(`/history/sources/${encodeURIComponent(source)}/messages${params({ query, cursor, limit: 50 })}`),
   sync: (accountId: string) => request<{ synced: boolean; message: string }>(`/accounts/${encodeURIComponent(accountId)}/sync`, json({}), 60_000),
   system: () => request<SystemInfo>('/system'),

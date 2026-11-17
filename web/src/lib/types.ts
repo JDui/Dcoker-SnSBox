@@ -111,3 +111,5 @@ export interface HistorySource {
 }
 export interface HistoryConversation extends Conversation { sourceId: string; readOnly: true }
 export interface HistoryMessage extends Message { sourceId: string; readOnly: true; conversationTitle?: string; conversationKind?: Conversation['kind'] }
+export interface HistoryMessagePage extends Page<HistoryMessage> { anchorMessageId?: string; hasNewer?: boolean; generation?: string }
+export interface HistoryMessageContext extends HistoryMessagePage { anchorMessageId: string; hasNewer: boolean; generation: string }

@@ -40,6 +40,7 @@ test('既有历史：阻塞条件、只读分页搜索、来源隔离和代次�
       const isA = path.includes('/fixture-history-a/')
       const selectedConversation = isA ? conversation : secondConversation
       const selectedMessage = isA ? current : secondMessage
+      if (path.endsWith('/context')) return route.fulfill({ json: { items: isA ? [current, older] : [secondMessage], nextCursor: isA ? 'synthetic-stale' : null, generation: isA ? generation : secondSource.generation, anchorMessageId: selectedMessage.id, hasNewer: false } })
       if (path.endsWith('/conversations')) {
         calls.conversations++
         // A foreign row is deliberately included to check the UI's source boundary.
@@ -157,6 +158,7 @@ test('QQ 历史按服务端状态开放读取，平台身份隔离且始终只�
       if (refreshes > 2) canRefresh = false
       return route.fulfill({ json: source() })
     }
+    if (path.endsWith('/context')) return route.fulfill({ json: { items: [message, ...foreign], nextCursor: null, generation: 'synthetic-qq-generation', anchorMessageId: message.id, hasNewer: false } })
     if (path.includes('/history/') && path.endsWith('/conversations')) { conversationReads++; return route.fulfill({ json: { items: [conversation, { ...conversation, id: 'foreign-conversation', platform: 'wechat', title: '不应显示的微信会话' }], nextCursor: null } }) }
     if (path.includes('/history/') && path.endsWith('/messages')) return route.fulfill({ json: { items: [message, ...foreign], nextCursor: null } })
     return route.fulfill({ json: { items: [] } })

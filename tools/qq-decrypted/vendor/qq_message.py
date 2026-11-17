@@ -540,5 +540,3 @@ def _extract_msg_text(blob: bytes) -> str:
         if p and (not out or out[-1] != p):
             out.append(p)
     return " ".join(out)
-
-
